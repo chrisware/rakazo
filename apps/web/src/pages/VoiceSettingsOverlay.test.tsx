@@ -14,7 +14,12 @@ const voice = vi.hoisted(() => ({
   disconnect: vi.fn(),
   setVoice: vi.fn(),
   setSpeechModel: vi.fn(),
-  summaryConfig: vi.fn(async () => ({ configured: false, baseUrl: "", modelId: "", hasKey: false })),
+  summaryConfig: vi.fn(async () => ({
+    configured: false,
+    baseUrl: "",
+    modelId: "",
+    hasKey: false,
+  })),
 }));
 
 vi.mock("../lib/rpc", () => ({ rpc: { voice } }));

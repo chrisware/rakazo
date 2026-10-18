@@ -29,7 +29,9 @@ test("bot settings show read aloud and the last summary", async ({ page }, testI
   await captureScreenshot(page, testInfo, "bot-read-aloud");
 });
 
-test("voice settings keep the summary model separate from providers", async ({ page }, testInfo) => {
+test("voice settings keep the summary model separate from providers", async ({
+  page,
+}, testInfo) => {
   const stamp = Date.now();
   await signup(page, `voice-summary-${stamp}@rakazo.test`, "password12", `Summary ${stamp}`);
   await completeOnboarding(page);

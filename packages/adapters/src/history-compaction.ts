@@ -255,7 +255,11 @@ export async function summarizeForSpeech(
       signal: AbortSignal.timeout(20_000),
     },
   )) {
-    if (event.type === "done" && event.text && !/^(?:I hit a problem:|Unknown model )/i.test(event.text.trim())) {
+    if (
+      event.type === "done" &&
+      event.text &&
+      !/^(?:I hit a problem:|Unknown model )/i.test(event.text.trim())
+    ) {
       summary = event.text.trim();
     }
   }
