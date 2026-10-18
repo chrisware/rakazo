@@ -63,6 +63,7 @@ export default function VoiceSettings() {
   const [summaryModel, setSummaryModel] = useState("");
   const [summaryKey, setSummaryKey] = useState("");
   const [summaryHasKey, setSummaryHasKey] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
   const speechModelSave = useRef<string | null>(null);
   const [deviceVoice, setDeviceVoice] = useState(false);
   const [deviceVoiceReady, setDeviceVoiceReady] = useState(false);
@@ -103,15 +104,11 @@ export default function VoiceSettings() {
       baseUrl: string;
       modelId: string;
       hasKey: boolean;
-    }>("voice/summaryConfig").catch(() => ({
-      configured: false,
-      baseUrl: "",
-      modelId: "",
-      hasKey: false,
-    }));
+    }>("voice/summaryConfig");
     setSummaryUrl(summary.baseUrl);
     setSummaryModel(summary.modelId);
     setSummaryHasKey(summary.hasKey);
+    setSummaryLoaded(true);
   }, []);
 
   useFocusEffect(
@@ -329,6 +326,7 @@ export default function VoiceSettings() {
   }
 
   async function saveSummary() {
+    if (!summaryLoaded) return;
     setPending("speech");
     setError(null);
     try {
@@ -474,7 +472,7 @@ export default function VoiceSettings() {
           />
         </View>
         <NativeActionButton
-          disabled={pending !== null}
+          disabled={pending !== null || !summaryLoaded}
           label={pending === "speech" ? t("Checking…") : t("Save summary model")}
           onPress={() => void saveSummary()}
         />

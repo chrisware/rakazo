@@ -66,15 +66,20 @@ export function VoiceSettingsOverlay({
       rpc.voice.catalog(),
       rpc.voice.credentials(),
       rpc.voice.status(),
-      rpc.voice.summaryConfig(),
+      rpc.voice.summaryConfig().catch((err: unknown) => {
+        setError(errorText(err, t`Could not load voice settings`));
+        return null;
+      }),
     ]);
     const selected = nextProvider || provider || nextStatus.provider || nextCatalog[0]?.id || "";
     setCatalog(nextCatalog);
     setCredentials(nextCredentials);
     setStatus(nextStatus);
-    setSummaryUrl(summary.baseUrl);
-    setSummaryModel(summary.modelId);
-    setSummaryHasKey(summary.hasKey);
+    if (summary) {
+      setSummaryUrl(summary.baseUrl);
+      setSummaryModel(summary.modelId);
+      setSummaryHasKey(summary.hasKey);
+    }
     setProvider(selected);
     const cred = nextCredentials.find((entry) => entry.provider === selected);
     const activeVoice = cred?.voiceId ?? "";

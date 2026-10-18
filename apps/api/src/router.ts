@@ -134,7 +134,6 @@ import type {
   ExportManifest,
   McpServer,
   Me,
-  MessageBlock,
   ProductEvent,
   Routine,
   SpaceNavigation,
@@ -271,7 +270,12 @@ import {
   readServerUpdateStatus,
   UpdaterProxyError,
 } from "./server-update.js";
-import { registerHostSpeaker, resolveSpokenText, speakOnHost } from "./spoken-text.js";
+import {
+  loadSpeakableMessage,
+  registerHostSpeaker,
+  resolveSpokenText,
+  speakOnHost,
+} from "./spoken-text.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
 import {
   isBackgroundRun,
@@ -6119,8 +6123,21 @@ export function createRouter(deps: RouterDeps) {
         }),
       ),
       clearSummaryConfig: authed.voice.clearSummaryConfig.handler(async ({ context }) => {
-        await deps.prisma.speechSummaryConfig.deleteMany({
-          where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+        const existing = await deps.prisma.speechSummaryConfig.findUnique({
+          where: {
+            spaceId_userId: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+          },
+          select: { secretId: true },
+        });
+        await deps.prisma.$transaction(async (tx) => {
+          await tx.speechSummaryConfig.deleteMany({
+            where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+          });
+          if (existing?.secretId) {
+            await tx.secret.deleteMany({
+              where: { id: existing.secretId, userId: context.actor.userId },
+            });
+          }
         });
         return { ok: true as const };
       }),
@@ -6213,27 +6230,17 @@ export function createRouter(deps: RouterDeps) {
         prepareVoice(deps, context.actor, input),
       ),
       spokenText: authed.voice.spokenText.handler(async ({ context, input }) => {
-        const bot = await deps.prisma.bot.findFirst({
-          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
-          select: { id: true, thread: { select: { id: true } } },
-        });
-        if (!bot?.thread) throw new IsolationError();
-        const message = await deps.prisma.message.findFirst({
-          where: { id: input.messageId, threadId: bot.thread.id, role: "bot" },
-          select: { blocks: true },
-        });
-        if (!message) throw new IsolationError();
-        const blocks = message.blocks as MessageBlock[];
+        const message = await loadSpeakableMessage(deps.prisma, context.actor, input);
         const text = await resolveSpokenText({
           prisma: deps.prisma,
-          botId: bot.id,
-          threadId: bot.thread.id,
+          botId: input.botId,
+          threadId: message.threadId,
           messageId: input.messageId,
-          blocks,
+          blocks: message.blocks,
         });
         const hostSpoken = await speakOnHost(deps, {
           prisma: deps.prisma,
-          botId: bot.id,
+          botId: input.botId,
           text,
           speakOnHost: input.speakOnHost === true,
         });

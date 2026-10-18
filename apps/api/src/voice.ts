@@ -348,11 +348,14 @@ export async function saveSpeechSummaryConfig(
   const existing = await deps.prisma.speechSummaryConfig.findUnique({
     where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
   });
-  const existingSecret = existing?.secretId
-    ? await deps.prisma.secret.findFirst({
-        where: { id: existing.secretId, userId: actor.userId },
-      })
-    : null;
+  const nextUrl = allowed.href.replace(/\/$/, "");
+  const sameServer = existing?.baseUrl.replace(/\/$/, "") === nextUrl;
+  const existingSecret =
+    sameServer && existing?.secretId
+      ? await deps.prisma.secret.findFirst({
+          where: { id: existing.secretId, userId: actor.userId },
+        })
+      : null;
   const savedKey = existingSecret
     ? await deps.secrets.load(existingSecret.ciphertext, existingSecret.id)
     : "";
@@ -385,26 +388,36 @@ export async function saveSpeechSummaryConfig(
         },
       })
     : null;
-  await deps.prisma.speechSummaryConfig.upsert({
-    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
-    create: {
-      spaceId: actor.spaceId,
-      userId: actor.userId,
-      baseUrl: allowed.href.replace(/\/$/, ""),
-      modelId,
-      secretId: secret?.id,
-    },
-    update: {
-      baseUrl: allowed.href.replace(/\/$/, ""),
-      modelId,
-      ...(input.apiKey?.trim() ? { secretId: secret?.id } : {}),
-    },
+  const replacedSecretId =
+    existing?.secretId && existing.secretId !== secret?.id && (secret || !sameServer)
+      ? existing.secretId
+      : null;
+  await deps.prisma.$transaction(async (tx) => {
+    await tx.speechSummaryConfig.upsert({
+      where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
+      create: {
+        spaceId: actor.spaceId,
+        userId: actor.userId,
+        baseUrl: nextUrl,
+        modelId,
+        secretId: secret?.id,
+      },
+      update: {
+        baseUrl: nextUrl,
+        modelId,
+        ...(!sameServer ? { secretId: secret?.id ?? null } : {}),
+        ...(secret ? { secretId: secret.id } : {}),
+      },
+    });
+    if (replacedSecretId) {
+      await tx.secret.deleteMany({ where: { id: replacedSecretId, userId: actor.userId } });
+    }
   });
   return {
     configured: true,
-    baseUrl: allowed.href.replace(/\/$/, ""),
+    baseUrl: nextUrl,
     modelId,
-    hasKey: Boolean(secret || existingSecret),
+    hasKey: Boolean(secret || (sameServer && existing?.secretId)),
   };
 }
 
