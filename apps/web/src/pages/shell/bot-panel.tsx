@@ -200,6 +200,7 @@ export function CreateBotForm({
 
 export function BotSettings({
   bot,
+  latestBotMessageId = null,
   memoryProviderConfigured,
   onSkillsChange,
   onSave,
@@ -207,6 +208,8 @@ export function BotSettings({
   onClear,
 }: {
   bot: Bot;
+  /** Changes when a new bot reply arrives, so the open panel can refresh. */
+  latestBotMessageId?: string | null;
   onSkillsChange: (skills: AgentSkillCatalogEntry[]) => void;
   memoryProviderConfigured: boolean;
   onSave: (patch: {
@@ -317,7 +320,7 @@ export function BotSettings({
     return () => {
       current = false;
     };
-  }, [bot.id]);
+  }, [bot.id, latestBotMessageId]);
 
   const connectedOptions = connectedModelChoices(credentials, catalog);
   const storedModel = modelKey ? parseModelOptionKey(modelKey) : null;

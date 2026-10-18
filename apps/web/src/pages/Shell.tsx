@@ -4086,6 +4086,11 @@ export function ShellPage() {
               <BotSettings
                 key={active.id}
                 bot={active}
+                latestBotMessageId={
+                  [...(activeSnapshot?.messages ?? [])]
+                    .reverse()
+                    .find((message) => message.role === "bot")?.id ?? null
+                }
                 memoryProviderConfigured={memoryProviderConfig != null}
                 onSkillsChange={setAgentSkills}
                 onSave={async ({ computerMode, ...patch }) => {

@@ -184,6 +184,35 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it("refreshes the last summary when a new reply arrives", async () => {
+  const lastSummary = vi.fn().mockResolvedValue({ text: "First." });
+  Object.assign(rpc.voice, { lastSummary });
+  await render();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(container.querySelector("textarea")?.value).not.toBe("Next.");
+
+  lastSummary.mockResolvedValue({ text: "Next." });
+  await act(async () => {
+    root.render(
+      <BotSettings
+        bot={bot()}
+        latestBotMessageId="message-2"
+        memoryProviderConfigured={false}
+        onSkillsChange={() => undefined}
+        onSave={onSave}
+        onExport={async () => undefined}
+        onClear={() => undefined}
+      />,
+    );
+    await Promise.resolve();
+  });
+
+  expect(lastSummary).toHaveBeenCalledTimes(2);
+  expect(container.textContent).toContain("Next.");
+});
+
 describe("BotSettings model choices", () => {
   it("submits DeepSeek API ids and does not offer a display label", async () => {
     vi.mocked(rpc.models.credentials).mockResolvedValueOnce([
