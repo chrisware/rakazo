@@ -9,6 +9,7 @@ import {
   MAX_SPEAK_REQUEST_BYTES,
   MAX_TRANSCRIBE_REQUEST_BYTES,
   mountVoiceHttpRoutes,
+  saveSpeechSummaryConfig,
   synthesizeVoice,
   toVoiceStatus,
   updateVoiceSpeechModel,
@@ -479,5 +480,78 @@ describe("synthesizeVoice", () => {
     await synthesizeVoice(deps, actor, { text: "Hello" });
 
     expect(synthesize.mock.calls[0]?.[0]).toMatchObject({ model: undefined });
+  });
+});
+
+describe("saveSpeechSummaryConfig", () => {
+  const baseUrl = "http://127.0.0.1:11434/v1";
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function summaryDeps(load: () => Promise<string>) {
+    const tx = {
+      speechSummaryConfig: { upsert: vi.fn(async () => undefined) },
+      secret: { deleteMany: vi.fn(async () => ({ count: 0 })) },
+    };
+    const deps = {
+      prisma: {
+        speechSummaryConfig: {
+          findUnique: vi.fn(async () => ({
+            baseUrl,
+            modelId: "llama",
+            secretId: "sec-1",
+          })),
+        },
+        secret: {
+          findFirst: vi.fn(async () => ({ id: "sec-1", ciphertext: "cipher" })),
+          create: vi.fn(async ({ data }: { data: { id: string } }) => data),
+        },
+        $transaction: vi.fn(async (run: (client: typeof tx) => Promise<void>) => run(tx)),
+      },
+      secrets: {
+        load: vi.fn(load),
+        put: vi.fn(async () => ({ id: "sec-2", ciphertext: "stored" })),
+      },
+    } as unknown as VoiceDeps;
+    return { deps, tx };
+  }
+
+  it("stores a pasted key without reading the saved secret", async () => {
+    vi.spyOn(adapters, "probeOpenAiCompatibleModels").mockResolvedValue(["llama"]);
+    const { deps } = summaryDeps(async () => {
+      throw new Error("rotated store key");
+    });
+
+    const saved = await saveSpeechSummaryConfig(deps, actor, {
+      baseUrl,
+      modelId: "llama",
+      apiKey: "new-key",
+    });
+
+    expect(deps.secrets.load).not.toHaveBeenCalled();
+    expect(adapters.probeOpenAiCompatibleModels).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "new-key" }),
+      undefined,
+      undefined,
+    );
+    expect(deps.secrets.put).toHaveBeenCalled();
+    expect(saved).toMatchObject({ configured: true, modelId: "llama", hasKey: true });
+  });
+
+  it("treats an unreadable saved key as absent", async () => {
+    vi.spyOn(adapters, "probeOpenAiCompatibleModels").mockResolvedValue(["llama"]);
+    const { deps } = summaryDeps(async () => {
+      throw new Error("rotated store key");
+    });
+
+    await saveSpeechSummaryConfig(deps, actor, { baseUrl, modelId: "llama" });
+
+    expect(adapters.probeOpenAiCompatibleModels).toHaveBeenCalledWith(
+      expect.objectContaining({ apiKey: "" }),
+      undefined,
+      undefined,
+    );
   });
 });

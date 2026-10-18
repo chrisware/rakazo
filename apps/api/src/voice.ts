@@ -356,10 +356,12 @@ export async function saveSpeechSummaryConfig(
           where: { id: existing.secretId, userId: actor.userId },
         })
       : null;
-  const savedKey = existingSecret
-    ? await deps.secrets.load(existingSecret.ciphertext, existingSecret.id)
-    : "";
-  const apiKey = input.apiKey?.trim() || savedKey;
+  const typedKey = input.apiKey?.trim();
+  const savedKey =
+    !typedKey && existingSecret
+      ? await deps.secrets.load(existingSecret.ciphertext, existingSecret.id).catch(() => "")
+      : "";
+  const apiKey = typedKey || savedKey;
   try {
     const models = await probeOpenAiCompatibleModels(
       { baseUrl: allowed.href, apiKey },

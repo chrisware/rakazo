@@ -256,6 +256,7 @@ import {
   MAX_RECALLED_MEMORIES,
   selectCompactedHistory,
   shouldEnqueueCompaction,
+  shouldGenerateSpokenSummary,
   summarizeForSpeech,
 } from "./history-compaction.js";
 import {
@@ -7615,43 +7616,49 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 )
                 .catch(() => undefined)
             : undefined;
-          const spokenSummary =
-            bot.speakMode === "summary" && bot.autoSpeak && text.trim()
-              ? await summarizeForSpeech(
-                  {
-                    runtime: deps.runtime,
-                    resolveModel: async () =>
-                      summaryConfig
-                        ? {
-                            provider: "openai-compatible",
-                            id: summaryConfig.modelId,
-                            apiKey: summaryKey || "local",
-                            baseUrl: summaryConfig.baseUrl,
-                            thinkingLevel: "off" as const,
-                          }
-                        : {
-                            provider: runModelProvider,
-                            id: runModelId,
-                            apiKey: resolved.oauth ? undefined : resolved.apiKey,
-                            ...cloudflareRunFields(resolved),
-                            baseUrl: resolved.baseUrl,
-                            thinkingLevel: "off" as const,
-                            oauth: resolved.oauth
-                              ? {
-                                  credential: resolved.oauth,
-                                  persist: resolved.persistOAuth,
-                                  retire: resolved.retireOAuth,
-                                }
-                              : undefined,
-                          },
-                  },
-                  { userId: run.userId, spaceId: run.spaceId, botId: bot.id },
-                  text,
-                ).catch((error) => {
-                  getLogger().warn("spoken summary failed", { runId, error });
-                  return null;
-                })
-              : null;
+          const spokenSummary = shouldGenerateSpokenSummary({
+            speakMode: bot.speakMode,
+            autoSpeak: bot.autoSpeak,
+            blockCount: blocks.length,
+            background: isBackgroundRunTrigger(run.trigger),
+            text,
+          })
+            ? await summarizeForSpeech(
+                {
+                  runtime: deps.runtime,
+                  resolveModel: async () =>
+                    summaryConfig
+                      ? {
+                          provider: "openai-compatible",
+                          id: summaryConfig.modelId,
+                          apiKey: summaryKey || "local",
+                          baseUrl: summaryConfig.baseUrl,
+                          thinkingLevel: "off" as const,
+                        }
+                      : {
+                          provider: runModelProvider,
+                          id: runModelId,
+                          apiKey: resolved.oauth ? undefined : resolved.apiKey,
+                          ...cloudflareRunFields(resolved),
+                          baseUrl: resolved.baseUrl,
+                          thinkingLevel: "off" as const,
+                          oauth: resolved.oauth
+                            ? {
+                                credential: resolved.oauth,
+                                persist: resolved.persistOAuth,
+                                retire: resolved.retireOAuth,
+                              }
+                            : undefined,
+                        },
+                },
+                { userId: run.userId, spaceId: run.spaceId, botId: bot.id },
+                text,
+                context.signal,
+              ).catch((error) => {
+                getLogger().warn("spoken summary failed", { runId, error });
+                return null;
+              })
+            : null;
           const botMessageOutcome =
             run.trigger === "bot_message"
               ? botMessageOutcomeFromMidTurn(text, midTurnUserTexts)

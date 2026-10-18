@@ -44,6 +44,7 @@ export function VoiceSettingsOverlay({
   const [summaryModel, setSummaryModel] = useState("");
   const [summaryKey, setSummaryKey] = useState("");
   const [summaryHasKey, setSummaryHasKey] = useState(false);
+  const [summaryLoaded, setSummaryLoaded] = useState(false);
   const speechModelSave = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<"connect" | "disconnect" | "voice" | "test" | null>(null);
@@ -79,6 +80,9 @@ export function VoiceSettingsOverlay({
       setSummaryUrl(summary.baseUrl);
       setSummaryModel(summary.modelId);
       setSummaryHasKey(summary.hasKey);
+      setSummaryLoaded(true);
+    } else {
+      setSummaryLoaded(false);
     }
     setProvider(selected);
     const cred = nextCredentials.find((entry) => entry.provider === selected);
@@ -181,6 +185,7 @@ export function VoiceSettingsOverlay({
   }
 
   async function saveSummary() {
+    if (!summaryLoaded) return;
     setError(null);
     setNotice(null);
     markPending("voice");
@@ -377,7 +382,7 @@ export function VoiceSettingsOverlay({
               <Button
                 type="button"
                 className="mt-3"
-                disabled={busy}
+                disabled={busy || !summaryLoaded}
                 onClick={() => void saveSummary()}
               >
                 {pending === "voice" && showSummary ? (

@@ -24,8 +24,35 @@ import {
   SUMMARIZE_TIMEOUT_MIN_MS,
   selectCompactedHistory,
   shouldEnqueueCompaction,
+  shouldGenerateSpokenSummary,
+  summarizeForSpeech,
   summarizeTimeoutMs,
 } from "./history-compaction.js";
+
+describe("shouldGenerateSpokenSummary", () => {
+  const ready = {
+    speakMode: "summary",
+    autoSpeak: true,
+    blockCount: 1,
+    background: false,
+    text: "The reply.",
+  };
+
+  it("summarises a saved reply", () => {
+    expect(shouldGenerateSpokenSummary(ready)).toBe(true);
+  });
+
+  it("skips a run that will not save a message", () => {
+    expect(shouldGenerateSpokenSummary({ ...ready, blockCount: 0 })).toBe(false);
+    expect(shouldGenerateSpokenSummary({ ...ready, background: true })).toBe(false);
+    expect(shouldGenerateSpokenSummary({ ...ready, text: "  " })).toBe(false);
+  });
+
+  it("skips full replies and bots that are not reading aloud", () => {
+    expect(shouldGenerateSpokenSummary({ ...ready, speakMode: "full" })).toBe(false);
+    expect(shouldGenerateSpokenSummary({ ...ready, autoSpeak: false })).toBe(false);
+  });
+});
 
 describe("shouldEnqueueCompaction", () => {
   it("is false when nothing has aged out of the window yet", () => {
@@ -1202,6 +1229,33 @@ describe("compactHistory", () => {
 
     expect(harness.thread.historyCompactedUpToSeq).toBe(49);
     expect(harness.thread.historyCompactionSummary).toBe("Summary of 50 messages.");
+  });
+
+  it("passes a cancelled run through to the summary model call", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let seen: AbortSignal | undefined;
+    const runtime = {
+      describe: () => ({
+        capabilities: { compaction: true },
+      }),
+      run: vi.fn(async function* (_request: unknown, ctx: { signal: AbortSignal }) {
+        seen = ctx.signal;
+        yield { type: "done" as const, text: "Done." };
+      }),
+    };
+
+    await summarizeForSpeech(
+      {
+        runtime: runtime as unknown as AgentRuntime,
+        resolveModel: async () => ({ provider: "openai", id: "gpt" }) as AgentRunRequest["model"],
+      },
+      { userId: "user-1", spaceId: "space-1", botId: "bot-1" },
+      "The long reply.",
+      controller.signal,
+    );
+
+    expect(seen?.aborted).toBe(true);
   });
 
   it("does not advance or re-enqueue if another worker already moved the cursor", async () => {

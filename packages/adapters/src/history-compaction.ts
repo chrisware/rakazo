@@ -219,12 +219,30 @@ export interface CompactHistoryDeps {
   }) => Promise<AgentRunRequest["model"]>;
 }
 
+/** A spoken summary is only worth a model call when a chat message will store it. */
+export function shouldGenerateSpokenSummary(input: {
+  speakMode: string | null | undefined;
+  autoSpeak: boolean;
+  blockCount: number;
+  background: boolean;
+  text: string;
+}): boolean {
+  return (
+    input.speakMode === "summary" &&
+    input.autoSpeak &&
+    input.blockCount > 0 &&
+    !input.background &&
+    input.text.trim().length > 0
+  );
+}
+
 export async function summarizeForSpeech(
   deps: Pick<CompactHistoryDeps, "runtime"> & {
     resolveModel: NonNullable<CompactHistoryDeps["resolveModel"]>;
   },
   scope: { userId: string; spaceId: string; botId: string },
   reply: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const model = await deps.resolveModel(scope);
   if (!deps.runtime.describe().capabilities.compaction || model.provider === "scripted") {
@@ -252,7 +270,9 @@ export async function summarizeForSpeech(
       traceId: `speak:${scope.botId}`,
       spaceId: scope.spaceId,
       userId: scope.userId,
-      signal: AbortSignal.timeout(20_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(20_000)])
+        : AbortSignal.timeout(20_000),
     },
   )) {
     if (
