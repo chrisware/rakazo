@@ -118,6 +118,9 @@ beforeEach(() => {
     }
     if (proc === "voice/voices")
       return [{ id: `${args!.provider}-voice`, label: `${args!.provider} voice` }];
+    if (proc === "voice/summaryConfig") {
+      return { configured: false, baseUrl: "", modelId: "", hasKey: false };
+    }
     throw new Error(`Unexpected RPC: ${proc}`);
   });
   container = document.createElement("div");
@@ -130,11 +133,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it("shows the summary fields", async () => {
+  await render();
+  expect(container.textContent).toContain("Summarise");
+  expect(container.querySelector('[aria-label="Server URL"]')).not.toBeNull();
+  expect(container.querySelector('[aria-label="Summary API key"]')).not.toBeNull();
+});
+
 it("selects only This device and hides all provider controls until it is turned off", async () => {
   await render();
   selected("This device");
   for (const entry of catalog) unselected(entry.name);
-  expect(container.querySelector("input")).toBeNull();
+  expect(container.querySelector('[aria-label="API key"]')).toBeNull();
   expect(container.textContent).not.toContain("Replace key");
   expect(container.textContent).not.toContain("Disconnect");
   expect(container.textContent).not.toContain("Speech model");
@@ -197,7 +207,7 @@ it("keeps the device selected if saving its preference fails", async () => {
   await click("Other provider");
   selected("This device");
   unselected("Other provider");
-  expect(container.querySelector("input")).toBeNull();
+  expect(container.querySelector('[aria-label="API key"]')).toBeNull();
   expect(state.rpc).not.toHaveBeenCalledWith("voice/setVoice", expect.anything());
   expect(container.textContent).toContain("Could not save that preference");
   await click("This device");

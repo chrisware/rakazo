@@ -36,9 +36,14 @@ export function VoiceSettingsOverlay({
   const [status, setStatus] = useState<VoiceStatus | null>(null);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [provider, setProvider] = useState("");
+  const [showSummary, setShowSummary] = useState(false);
   const [apiKey, setApiKey] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [speechModel, setSpeechModel] = useState("");
+  const [summaryUrl, setSummaryUrl] = useState("");
+  const [summaryModel, setSummaryModel] = useState("");
+  const [summaryKey, setSummaryKey] = useState("");
+  const [summaryHasKey, setSummaryHasKey] = useState(false);
   const speechModelSave = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<"connect" | "disconnect" | "voice" | "test" | null>(null);
@@ -57,15 +62,19 @@ export function VoiceSettingsOverlay({
   }
 
   async function refresh(nextProvider?: string) {
-    const [nextCatalog, nextCredentials, nextStatus] = await Promise.all([
+    const [nextCatalog, nextCredentials, nextStatus, summary] = await Promise.all([
       rpc.voice.catalog(),
       rpc.voice.credentials(),
       rpc.voice.status(),
+      rpc.voice.summaryConfig(),
     ]);
     const selected = nextProvider || provider || nextStatus.provider || nextCatalog[0]?.id || "";
     setCatalog(nextCatalog);
     setCredentials(nextCredentials);
     setStatus(nextStatus);
+    setSummaryUrl(summary.baseUrl);
+    setSummaryModel(summary.modelId);
+    setSummaryHasKey(summary.hasKey);
     setProvider(selected);
     const cred = nextCredentials.find((entry) => entry.provider === selected);
     const activeVoice = cred?.voiceId ?? "";
@@ -166,6 +175,35 @@ export function VoiceSettingsOverlay({
     }
   }
 
+  async function saveSummary() {
+    setError(null);
+    setNotice(null);
+    markPending("voice");
+    try {
+      if (!summaryUrl.trim() && !summaryModel.trim()) {
+        await rpc.voice.clearSummaryConfig();
+        setSummaryHasKey(false);
+        setSummaryKey("");
+        setNotice(t`Summary model cleared.`);
+        return;
+      }
+      const saved = await rpc.voice.setSummaryConfig({
+        baseUrl: summaryUrl.trim(),
+        modelId: summaryModel.trim(),
+        ...(summaryKey.trim() ? { apiKey: summaryKey.trim() } : {}),
+      });
+      setSummaryUrl(saved.baseUrl);
+      setSummaryModel(saved.modelId);
+      setSummaryHasKey(saved.hasKey);
+      setSummaryKey("");
+      setNotice(t`Summary model saved.`);
+    } catch (err) {
+      setError(errorText(err, t`Could not save the summary model`));
+    } finally {
+      markPending(null);
+    }
+  }
+
   async function testVoice() {
     setError(null);
     setNotice(null);
@@ -218,6 +256,7 @@ export function VoiceSettingsOverlay({
                   type="button"
                   disabled={busy}
                   onClick={() => {
+                    setShowSummary(false);
                     setProvider(entry.id);
                     setApiKey("");
                     setError(null);
@@ -230,7 +269,7 @@ export function VoiceSettingsOverlay({
                       .finally(() => markPending(null));
                   }}
                   className={`flex w-full items-center gap-3 border-b border-border px-3.5 py-3 text-start transition-colors last:border-0 disabled:pointer-events-none disabled:opacity-50 ${
-                    entry.id === provider ? "bg-muted" : "hover:bg-accent"
+                    !showSummary && entry.id === provider ? "bg-muted" : "hover:bg-accent"
                   }`}
                 >
                   <span className="min-w-0 flex-1">
@@ -252,17 +291,106 @@ export function VoiceSettingsOverlay({
               );
             })}
           </div>
+          <div className="mb-3 mt-6 text-[13.5px] text-muted-foreground">
+            <Trans>Speech</Trans>
+          </div>
+          <div className="rounded-xl border border-border">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setShowSummary(true);
+                setError(null);
+                setNotice(null);
+              }}
+              className={`flex w-full items-center gap-3 px-3.5 py-3 text-start transition-colors disabled:pointer-events-none disabled:opacity-50 ${
+                showSummary ? "bg-muted" : "hover:bg-accent"
+              }`}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15px] text-foreground">
+                  <Trans>Summarise</Trans>
+                </span>
+                <span className="mt-0.5 block text-[12px] text-muted-foreground/80">
+                  <Trans>Summary model</Trans>
+                </span>
+              </span>
+            </button>
+          </div>
         </div>
 
         <div className="rk-scroll min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {loading ? (
+          {showSummary ? (
+            <div>
+              <div className="text-[15px] text-foreground">
+                <Trans>Summary model</Trans>
+              </div>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                <Trans>
+                  Used by every voice when a bot reads a summary. Leave blank to use the bot's own
+                  model.
+                </Trans>
+              </p>
+              <Field className="mt-4">
+                <FieldLabel htmlFor={`${apiKeyId}-summary-url`}>
+                  <Trans>Server URL</Trans>
+                </FieldLabel>
+                <Input
+                  id={`${apiKeyId}-summary-url`}
+                  aria-label="Server URL"
+                  value={summaryUrl}
+                  placeholder="http://127.0.0.1:11434/v1"
+                  onChange={(event) => setSummaryUrl(event.target.value)}
+                />
+              </Field>
+              <Field className="mt-3">
+                <FieldLabel htmlFor={`${apiKeyId}-summary-model`}>
+                  <Trans>Model</Trans>
+                </FieldLabel>
+                <Input
+                  id={`${apiKeyId}-summary-model`}
+                  aria-label="Model"
+                  value={summaryModel}
+                  onChange={(event) => setSummaryModel(event.target.value)}
+                />
+              </Field>
+              <Field className="mt-3">
+                <FieldLabel htmlFor={`${apiKeyId}-summary-key`}>
+                  <Trans>API key</Trans>
+                </FieldLabel>
+                <Input
+                  id={`${apiKeyId}-summary-key`}
+                  aria-label="API key"
+                  type="password"
+                  value={summaryKey}
+                  placeholder={
+                    summaryHasKey ? t`Saved. Paste to replace.` : t`Optional for a local server`
+                  }
+                  onChange={(event) => setSummaryKey(event.target.value)}
+                />
+              </Field>
+              <Button
+                type="button"
+                className="mt-3"
+                disabled={busy}
+                onClick={() => void saveSummary()}
+              >
+                {pending === "voice" && showSummary ? (
+                  <Trans>Checking…</Trans>
+                ) : (
+                  <Trans>Save summary model</Trans>
+                )}
+              </Button>
+            </div>
+          ) : null}
+          {showSummary ? null : loading ? (
             <p className="text-sm text-muted-foreground">
               <Trans>Loading voice providers…</Trans>
             </p>
           ) : null}
           {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
           {notice ? <p className="mb-4 text-sm text-success">{notice}</p> : null}
-          {selected ? (
+          {!showSummary && selected ? (
             <>
               <Field className="mt-5">
                 <FieldLabel htmlFor={apiKeyId}>

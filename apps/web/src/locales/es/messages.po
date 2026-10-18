@@ -1735,6 +1735,10 @@ msgstr "No se pudo guardar esa voz"
 msgid "Could not save the credential"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Could not save the summary model"
+msgstr "No se pudo guardar el modelo de resumen"
+
 #: src/pages/shell/message-cards.tsx
 msgid "Could not save this choice"
 msgstr "No se pudo guardar esta opción"
@@ -2394,6 +2398,10 @@ msgstr ""
 msgid "From {0}"
 msgstr ""
 
+#: src/pages/shell/bot-panel.tsx
+msgid "Full reply"
+msgstr "Respuesta completa"
+
 #: src/pages/WindowChrome.tsx
 msgid "Fullscreen"
 msgstr "Pantalla completa"
@@ -2650,6 +2658,10 @@ msgstr "Conocimientos"
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Language"
 msgstr "Idioma"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Last summary"
+msgstr "Último resumen"
 
 #: src/components/DesktopUpdates.tsx
 msgid "Later"
@@ -3224,6 +3236,10 @@ msgstr "Aún no hay ejecuciones"
 msgid "No skills yet"
 msgstr "Aún no hay habilidades"
 
+#: src/pages/shell/bot-panel.tsx
+msgid "No summary yet."
+msgstr "Aún no hay resumen."
+
 #: src/pages/MessagingSettingsOverlay.tsx
 msgid "No team conversations yet."
 msgstr ""
@@ -3388,6 +3404,10 @@ msgstr "Abriendo tu Space…"
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Optional"
 msgstr "Opcional"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Optional for a local server"
+msgstr "Opcional para un servidor local"
 
 #: src/pages/McpServersOverlay.tsx
 msgid "Optional header value"
@@ -3563,6 +3583,10 @@ msgstr "Reaccionar"
 #: src/pages/Shell.tsx
 msgid "Reactions"
 msgstr "Reacciones"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Read"
+msgstr "Leer"
 
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
@@ -3967,6 +3991,10 @@ msgstr ""
 msgid "Save new value"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Save summary model"
+msgstr "Guardar modelo de resumen"
+
 #: src/components/ComputerMaintenanceActions.tsx
 msgid "Save the workspace and install current software."
 msgstr "Guardar el espacio de trabajo e instalar el software actual."
@@ -3984,6 +4012,10 @@ msgstr "Guardado, pero falló la actualización de la lista"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Saved."
 msgstr "Guardado."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Saved. Paste to replace."
+msgstr "Guardado. Pega para reemplazar."
 
 #: src/pages/RoutineEditor.tsx
 msgid "Saved. Rotate to reveal."
@@ -4317,6 +4349,10 @@ msgid "Speak this reply"
 msgstr "Leer esta respuesta"
 
 #: src/pages/VoiceSettingsOverlay.tsx
+msgid "Speech"
+msgstr "Voz"
+
+#: src/pages/VoiceSettingsOverlay.tsx
 msgid "Speech model"
 msgstr "Modelo de habla"
 
@@ -4397,6 +4433,26 @@ msgstr ""
 #: src/pages/Paywall.tsx
 msgid "Subscription required"
 msgstr ""
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summarise"
+msgstr "Resumir"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Summary"
+msgstr "Resumen"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model"
+msgstr "Modelo de resumen"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model cleared."
+msgstr "Modelo de resumen eliminado."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model saved."
+msgstr "Modelo de resumen guardado."
 
 #: src/pages/ModelSettingsOverlay.tsx
 #: src/pages/Onboarding.tsx
@@ -4813,6 +4869,10 @@ msgstr "Usar este modelo"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Use your own key"
 msgstr "Usar tu propia clave"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Used by every voice when a bot reads a summary. Leave blank to use the bot's own model."
+msgstr "Lo usa cualquier voz cuando un bot lee un resumen. Déjalo en blanco para usar el modelo del bot."
 
 #: src/components/AskCard.tsx
 #: src/pages/shell/bot-credentials.tsx

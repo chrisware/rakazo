@@ -17,6 +17,8 @@ import "../../src/styles.css";
 
 const demoRpc: Record<string, unknown> = {
   "voice/voices": [],
+  "voice/lastSummary": { text: "" },
+  "voice/summaryConfig": { configured: false, baseUrl: "", modelId: "", hasKey: false },
   "models/credentials": [
     {
       id: "cred-demo",
@@ -87,6 +89,7 @@ function inboxBot(): Bot {
     createdAt: "2026-10-07T00:00:00.000Z",
     voiceId: null,
     autoSpeak: false,
+    speakMode: "full",
     modelProvider: "openai",
     modelId: "gpt-4.1",
     thinkingLevel: null,

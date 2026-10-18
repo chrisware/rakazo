@@ -300,6 +300,7 @@ export const RU_MESSAGES: Record<string, string> = {
   "Could not save bot": "Не удалось сохранить бота",
   "Could not save group": "Не удалось сохранить группу",
   "Could not save that speech model": "Не удалось сохранить речевую модель",
+  "Could not save the summary model": "Не удалось сохранить модель сводки",
   "Could not save that voice": "Не удалось сохранить этот голос",
   "Could not save the default space": "Не удалось сохранить пространство по умолчанию.",
   "Could not save the server URL": "Не удалось сохранить URL-адрес сервера.",
@@ -458,6 +459,7 @@ export const RU_MESSAGES: Record<string, string> = {
   Optional: "Необязательно",
   "Or connect an API key": "Или подключите API-ключ",
   Organic: "Органичный",
+  "Optional for a local server": "Необязательно для локального сервера",
   "Other model…": "Другая модель…",
   Password: "Пароль",
   "Password recovery is not configured for this server":
@@ -528,6 +530,8 @@ export const RU_MESSAGES: Record<string, string> = {
   "Sending…": "Отправка…",
   Server: "Сервер",
   "Server URL": "URL-адрес сервера",
+  Summarise: "Сводка",
+  "Summary API key": "Ключ API для сводки",
   "Setup help": "Помощь по настройке",
   Share: "Поделиться",
   "Share {name}": "Поделиться {name}",
@@ -731,6 +735,8 @@ export const RU_MESSAGES: Record<string, string> = {
   "Default ({level})": "По умолчанию ({level})",
   "Disconnected {provider}.": "{provider} отключён.",
   "Save limits": "Сохранить лимиты",
+  "Save summary model": "Сохранить модель сводки",
+  "Saved. Paste to replace.": "Сохранено. Вставьте, чтобы заменить.",
   "Sign in again": "Войти снова",
   "Thinking: {level}": "Рассуждение: {level}",
   "Waiting for sign-in — the code expires in about {minutes} minutes.":

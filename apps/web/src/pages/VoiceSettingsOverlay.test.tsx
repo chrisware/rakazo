@@ -14,6 +14,7 @@ const voice = vi.hoisted(() => ({
   disconnect: vi.fn(),
   setVoice: vi.fn(),
   setSpeechModel: vi.fn(),
+  summaryConfig: vi.fn(async () => ({ configured: false, baseUrl: "", modelId: "", hasKey: false })),
 }));
 
 vi.mock("../lib/rpc", () => ({ rpc: { voice } }));
@@ -113,6 +114,12 @@ it("saves a Fish speech model on the existing provider pane", async () => {
       await Promise.resolve();
     });
 
+    await act(async () => {
+      button("Fish Audio").click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
     const input = speechModelInput(container);
     expect(input).toBeTruthy();
     expect(input?.placeholder).toBe("Optional");

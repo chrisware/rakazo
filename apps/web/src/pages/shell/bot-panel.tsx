@@ -220,6 +220,7 @@ export function BotSettings({
     memoryScope?: "isolated" | "shared" | null;
     autoSpeak?: boolean;
     voiceId?: string | null;
+    speakMode?: "full" | "summary";
     modelProvider?: string | null;
     modelId?: string | null;
     thinkingLevel?: ThinkingLevel | null;
@@ -244,8 +245,10 @@ export function BotSettings({
   const [computerMode, setComputerMode] = useState(bot.computerMode);
   const [memoryScope, setMemoryScope] = useState(bot.memoryScope);
   const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
+  const [speakMode, setSpeakMode] = useState<"full" | "summary">(bot.speakMode ?? "full");
   const [voiceId, setVoiceId] = useState(bot.voiceId ?? "");
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
+  const [lastSummary, setLastSummary] = useState("");
   const [modelKey, setModelKey] = useState(
     bot.modelProvider && bot.modelId ? modelOptionKey(bot.modelProvider, bot.modelId) : "",
   );
@@ -289,6 +292,10 @@ export function BotSettings({
       .voices({})
       .then(setVoices)
       .catch(() => setVoices([]));
+    void rpc.voice
+      .lastSummary({ botId: bot.id })
+      .then((result) => setLastSummary(result.text))
+      .catch(() => setLastSummary(""));
     void Promise.all([rpc.models.credentials(), rpc.models.list(), rpc.me()])
       .then(([nextCredentials, nextCatalog, nextMe]) => {
         setCredentials(nextCredentials);
@@ -370,6 +377,7 @@ export function BotSettings({
         computerMode,
         memoryScope,
         autoSpeak,
+        speakMode,
         voiceId: voiceId || null,
         modelProvider: selected?.provider ?? null,
         modelId: selected?.modelId ?? null,
@@ -655,6 +663,22 @@ export function BotSettings({
           />
           <Trans>Read replies aloud</Trans>
         </label>
+        {autoSpeak ? (
+          <label htmlFor={`${ids}-speak-mode`} className={fieldLabelClass}>
+            <Trans>Read</Trans>
+            <NativeSelect
+              id={`${ids}-speak-mode`}
+              className="mt-2 w-full"
+              value={speakMode}
+              onChange={(event) =>
+                setSpeakMode(event.target.value === "summary" ? "summary" : "full")
+              }
+            >
+              <NativeSelectOption value="full">{t`Full reply`}</NativeSelectOption>
+              <NativeSelectOption value="summary">{t`Summary`}</NativeSelectOption>
+            </NativeSelect>
+          </label>
+        ) : null}
         {voices.length ? (
           <label htmlFor={`${ids}-voice`} className={fieldLabelClass}>
             <Trans>Voice</Trans>
@@ -673,6 +697,16 @@ export function BotSettings({
             </NativeSelect>
           </label>
         ) : null}
+        <label htmlFor={`${ids}-last-summary`} className={fieldLabelClass}>
+          <Trans>Last summary</Trans>
+          <Textarea
+            id={`${ids}-last-summary`}
+            className="mt-2 min-h-16 text-[13px]"
+            readOnly
+            value={lastSummary}
+            placeholder={t`No summary yet.`}
+          />
+        </label>
         <label htmlFor={`${ids}-disabled-tools`} className={fieldLabelClass}>
           <Trans>Disabled tools</Trans>
           <Input

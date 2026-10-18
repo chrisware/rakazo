@@ -256,6 +256,7 @@ import {
   MAX_RECALLED_MEMORIES,
   selectCompactedHistory,
   shouldEnqueueCompaction,
+  summarizeForSpeech,
 } from "./history-compaction.js";
 import {
   assertConnectorToolArgs,
@@ -7599,6 +7600,58 @@ export function createRunExecutor(deps: ExecutorDeps) {
             throw new Error(TOOL_STEPS_WITHOUT_RESPONSE);
           }
           if (!(await renewRunLease(deps, runId, workerId, fence))) return;
+          const summaryConfig = deps.prisma.speechSummaryConfig
+            ? await deps.prisma.speechSummaryConfig
+                .findUnique({
+                  where: { spaceId_userId: { spaceId: run.spaceId, userId: run.userId } },
+                })
+                .catch(() => null)
+            : null;
+          const summaryKey = summaryConfig?.secretId
+            ? await deps.prisma.secret
+                .findFirst({ where: { id: summaryConfig.secretId, userId: run.userId } })
+                .then((secret) =>
+                  secret ? deps.secretStore.load(secret.ciphertext, secret.id) : undefined,
+                )
+                .catch(() => undefined)
+            : undefined;
+          const spokenSummary =
+            bot.speakMode === "summary" && bot.autoSpeak && text.trim()
+              ? await summarizeForSpeech(
+                  {
+                    runtime: deps.runtime,
+                    resolveModel: async () =>
+                      summaryConfig
+                        ? {
+                            provider: "openai-compatible",
+                            id: summaryConfig.modelId,
+                            apiKey: summaryKey || "local",
+                            baseUrl: summaryConfig.baseUrl,
+                            thinkingLevel: "off" as const,
+                          }
+                        : {
+                            provider: runModelProvider,
+                            id: runModelId,
+                            apiKey: resolved.oauth ? undefined : resolved.apiKey,
+                            ...cloudflareRunFields(resolved),
+                            baseUrl: resolved.baseUrl,
+                            thinkingLevel: "off" as const,
+                            oauth: resolved.oauth
+                              ? {
+                                  credential: resolved.oauth,
+                                  persist: resolved.persistOAuth,
+                                  retire: resolved.retireOAuth,
+                                }
+                              : undefined,
+                          },
+                  },
+                  { userId: run.userId, spaceId: run.spaceId, botId: bot.id },
+                  text,
+                ).catch((error) => {
+                  getLogger().warn("spoken summary failed", { runId, error });
+                  return null;
+                })
+              : null;
           const botMessageOutcome =
             run.trigger === "bot_message"
               ? botMessageOutcomeFromMidTurn(text, midTurnUserTexts)
@@ -7614,6 +7667,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             leaseFence: fence,
             outcome: "completed",
             blocks,
+            spokenSummary,
             markUnread: completionMarksUnread(
               run.trigger,
               text,

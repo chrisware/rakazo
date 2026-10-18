@@ -1735,6 +1735,10 @@ msgstr "Bu ses kaydedilemedi"
 msgid "Could not save the credential"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Could not save the summary model"
+msgstr "Özet modeli kaydedilemedi"
+
 #: src/pages/shell/message-cards.tsx
 msgid "Could not save this choice"
 msgstr "Bu seçim kaydedilemedi"
@@ -2394,6 +2398,10 @@ msgstr ""
 msgid "From {0}"
 msgstr ""
 
+#: src/pages/shell/bot-panel.tsx
+msgid "Full reply"
+msgstr "Tam yanıt"
+
 #: src/pages/WindowChrome.tsx
 msgid "Fullscreen"
 msgstr "Tam ekran"
@@ -2650,6 +2658,10 @@ msgstr "Bilgi"
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Language"
 msgstr "Dil"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Last summary"
+msgstr "Son özet"
 
 #: src/components/DesktopUpdates.tsx
 msgid "Later"
@@ -3224,6 +3236,10 @@ msgstr ""
 msgid "No skills yet"
 msgstr "Henüz beceri yok"
 
+#: src/pages/shell/bot-panel.tsx
+msgid "No summary yet."
+msgstr "Henüz özet yok."
+
 #: src/pages/MessagingSettingsOverlay.tsx
 msgid "No team conversations yet."
 msgstr ""
@@ -3388,6 +3404,10 @@ msgstr "Çalışma alanın açılıyor…"
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Optional"
 msgstr "İsteğe bağlı"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Optional for a local server"
+msgstr "Yerel sunucu için isteğe bağlı"
 
 #: src/pages/McpServersOverlay.tsx
 msgid "Optional header value"
@@ -3563,6 +3583,10 @@ msgstr "Tepki ver"
 #: src/pages/Shell.tsx
 msgid "Reactions"
 msgstr "Tepkiler"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Read"
+msgstr "Oku"
 
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
@@ -3967,6 +3991,10 @@ msgstr ""
 msgid "Save new value"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Save summary model"
+msgstr "Özet modelini kaydet"
+
 #: src/components/ComputerMaintenanceActions.tsx
 msgid "Save the workspace and install current software."
 msgstr "Çalışma alanını kaydedin ve güncel yazılımı yükleyin."
@@ -3984,6 +4012,10 @@ msgstr "Kaydedildi ama liste yenilenemedi"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Saved."
 msgstr "Kaydedildi."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Saved. Paste to replace."
+msgstr "Kaydedildi. Değiştirmek için yapıştırın."
 
 #: src/pages/RoutineEditor.tsx
 msgid "Saved. Rotate to reveal."
@@ -4317,6 +4349,10 @@ msgid "Speak this reply"
 msgstr "Bu yanıtı seslendir"
 
 #: src/pages/VoiceSettingsOverlay.tsx
+msgid "Speech"
+msgstr "Konuşma"
+
+#: src/pages/VoiceSettingsOverlay.tsx
 msgid "Speech model"
 msgstr "Konuşma modeli"
 
@@ -4397,6 +4433,26 @@ msgstr ""
 #: src/pages/Paywall.tsx
 msgid "Subscription required"
 msgstr ""
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summarise"
+msgstr "Özetle"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Summary"
+msgstr "Özet"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model"
+msgstr "Özet modeli"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model cleared."
+msgstr "Özet modeli temizlendi."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model saved."
+msgstr "Özet modeli kaydedildi."
 
 #: src/pages/ModelSettingsOverlay.tsx
 #: src/pages/Onboarding.tsx
@@ -4813,6 +4869,10 @@ msgstr "Bu modeli kullan"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Use your own key"
 msgstr "Kendi anahtarınızı kullanın"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Used by every voice when a bot reads a summary. Leave blank to use the bot's own model."
+msgstr "Bir bot özet okuduğunda her ses bunu kullanır. Botun kendi modelini kullanmak için boş bırakın."
 
 #: src/components/AskCard.tsx
 #: src/pages/shell/bot-credentials.tsx

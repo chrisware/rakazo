@@ -1735,6 +1735,10 @@ msgstr "목소리를 저장하지 못했습니다."
 msgid "Could not save the credential"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Could not save the summary model"
+msgstr "요약 모델을 저장할 수 없습니다"
+
 #: src/pages/shell/message-cards.tsx
 msgid "Could not save this choice"
 msgstr "선택 내용을 저장하지 못했습니다."
@@ -2394,6 +2398,10 @@ msgstr ""
 msgid "From {0}"
 msgstr ""
 
+#: src/pages/shell/bot-panel.tsx
+msgid "Full reply"
+msgstr "전체 답변"
+
 #: src/pages/WindowChrome.tsx
 msgid "Fullscreen"
 msgstr "전체 화면"
@@ -2650,6 +2658,10 @@ msgstr "지식"
 #: src/pages/AccountSettingsOverlay.tsx
 msgid "Language"
 msgstr "언어"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Last summary"
+msgstr "마지막 요약"
 
 #: src/components/DesktopUpdates.tsx
 msgid "Later"
@@ -3224,6 +3236,10 @@ msgstr "아직 실행 기록이 없습니다"
 msgid "No skills yet"
 msgstr "아직 스킬이 없습니다"
 
+#: src/pages/shell/bot-panel.tsx
+msgid "No summary yet."
+msgstr "아직 요약이 없습니다."
+
 #: src/pages/MessagingSettingsOverlay.tsx
 msgid "No team conversations yet."
 msgstr ""
@@ -3388,6 +3404,10 @@ msgstr "작업공간을 여는 중…"
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Optional"
 msgstr "선택 사항"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Optional for a local server"
+msgstr "로컬 서버에서는 선택 사항"
 
 #: src/pages/McpServersOverlay.tsx
 msgid "Optional header value"
@@ -3563,6 +3583,10 @@ msgstr "반응하기"
 #: src/pages/Shell.tsx
 msgid "Reactions"
 msgstr "반응"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Read"
+msgstr "읽기"
 
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
@@ -3967,6 +3991,10 @@ msgstr ""
 msgid "Save new value"
 msgstr ""
 
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Save summary model"
+msgstr "요약 모델 저장"
+
 #: src/components/ComputerMaintenanceActions.tsx
 msgid "Save the workspace and install current software."
 msgstr "작업 공간을 저장하고 최신 소프트웨어를 설치합니다."
@@ -3984,6 +4012,10 @@ msgstr "저장했지만 목록을 새로고침하지 못했습니다."
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Saved."
 msgstr "저장되었습니다."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Saved. Paste to replace."
+msgstr "저장됨. 바꾸려면 붙여 넣으세요."
 
 #: src/pages/RoutineEditor.tsx
 msgid "Saved. Rotate to reveal."
@@ -4317,6 +4349,10 @@ msgid "Speak this reply"
 msgstr "이 답변 읽기"
 
 #: src/pages/VoiceSettingsOverlay.tsx
+msgid "Speech"
+msgstr "음성"
+
+#: src/pages/VoiceSettingsOverlay.tsx
 msgid "Speech model"
 msgstr "음성 모델"
 
@@ -4397,6 +4433,26 @@ msgstr ""
 #: src/pages/Paywall.tsx
 msgid "Subscription required"
 msgstr ""
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summarise"
+msgstr "요약"
+
+#: src/pages/shell/bot-panel.tsx
+msgid "Summary"
+msgstr "요약"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model"
+msgstr "요약 모델"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model cleared."
+msgstr "요약 모델을 지웠습니다."
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Summary model saved."
+msgstr "요약 모델을 저장했습니다."
 
 #: src/pages/ModelSettingsOverlay.tsx
 #: src/pages/Onboarding.tsx
@@ -4813,6 +4869,10 @@ msgstr "이 모델 사용"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Use your own key"
 msgstr "내 키 사용"
+
+#: src/pages/VoiceSettingsOverlay.tsx
+msgid "Used by every voice when a bot reads a summary. Leave blank to use the bot's own model."
+msgstr "봇이 요약을 읽을 때 모든 음성이 사용합니다. 비워 두면 봇의 모델을 사용합니다."
 
 #: src/components/AskCard.tsx
 #: src/pages/shell/bot-credentials.tsx

@@ -1,6 +1,8 @@
 import { ORPCError } from "@orpc/server";
 import type { AdapterContext, SecretStore } from "@rakazo/adapter-kit";
 import {
+  assertAllowedOpenAiCompatibleUrl,
+  assertHttpsForKeyedOpenAiCompatibleUrl,
   createVoiceProvider,
   isFishSpeechModelId,
   isVoiceProviderId,
@@ -8,6 +10,7 @@ import {
   MAX_SPEAK_CHARS,
   MAX_TRANSCRIBE_BYTES,
   NoVoiceConfigured,
+  probeOpenAiCompatibleModels,
   voiceCatalogEntry,
 } from "@rakazo/adapters";
 import type { Actor, VoiceCredential, VoiceStatus } from "@rakazo/contracts";
@@ -323,6 +326,98 @@ export async function updateVoiceSpeechModel(
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     ),
   );
+}
+
+export async function saveSpeechSummaryConfig(
+  deps: VoiceDeps,
+  actor: Actor,
+  input: { baseUrl: string; modelId: string; apiKey?: string; signal?: AbortSignal },
+) {
+  const modelId = input.modelId.trim();
+  if (!modelId) throw new ORPCError("BAD_REQUEST", { message: "Model id is required." });
+  let allowed: URL;
+  try {
+    allowed = assertAllowedOpenAiCompatibleUrl(input.baseUrl);
+    assertHttpsForKeyedOpenAiCompatibleUrl(allowed, input.apiKey);
+  } catch (error) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: error instanceof Error ? error.message : "That server URL is not allowed.",
+    });
+  }
+  const existing = await deps.prisma.speechSummaryConfig.findUnique({
+    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
+  });
+  const existingSecret = existing?.secretId
+    ? await deps.prisma.secret.findFirst({
+        where: { id: existing.secretId, userId: actor.userId },
+      })
+    : null;
+  const savedKey = existingSecret
+    ? await deps.secrets.load(existingSecret.ciphertext, existingSecret.id)
+    : "";
+  const apiKey = input.apiKey?.trim() || savedKey;
+  try {
+    const models = await probeOpenAiCompatibleModels(
+      { baseUrl: allowed.href, apiKey },
+      undefined,
+      input.signal,
+    );
+    if (models.length > 0 && !models.includes(modelId)) {
+      throw new ORPCError("BAD_REQUEST", { message: `That server does not list ${modelId}.` });
+    }
+  } catch (error) {
+    if (error instanceof ORPCError) throw error;
+    throw new ORPCError("BAD_REQUEST", {
+      message: error instanceof Error ? error.message : "Could not reach that model server.",
+    });
+  }
+  const stored = input.apiKey?.trim()
+    ? await deps.secrets.put(input.apiKey.trim(), voiceContext(actor, input.signal))
+    : null;
+  const secret = stored
+    ? await deps.prisma.secret.create({
+        data: {
+          id: stored.id,
+          userId: actor.userId,
+          kind: "voice",
+          ciphertext: stored.ciphertext,
+        },
+      })
+    : null;
+  await deps.prisma.speechSummaryConfig.upsert({
+    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
+    create: {
+      spaceId: actor.spaceId,
+      userId: actor.userId,
+      baseUrl: allowed.href.replace(/\/$/, ""),
+      modelId,
+      secretId: secret?.id,
+    },
+    update: {
+      baseUrl: allowed.href.replace(/\/$/, ""),
+      modelId,
+      ...(input.apiKey?.trim() ? { secretId: secret?.id } : {}),
+    },
+  });
+  return {
+    configured: true,
+    baseUrl: allowed.href.replace(/\/$/, ""),
+    modelId,
+    hasKey: Boolean(secret || existingSecret),
+  };
+}
+
+export async function loadSpeechSummaryConfig(deps: VoiceDeps, actor: Actor) {
+  const row = await deps.prisma.speechSummaryConfig.findUnique({
+    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
+  });
+  if (!row) return { configured: false, baseUrl: "", modelId: "", hasKey: false };
+  return {
+    configured: true,
+    baseUrl: row.baseUrl,
+    modelId: row.modelId,
+    hasKey: Boolean(row.secretId),
+  };
 }
 
 export async function prepareVoice(

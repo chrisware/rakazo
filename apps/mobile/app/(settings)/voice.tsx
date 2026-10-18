@@ -59,6 +59,10 @@ export default function VoiceSettings() {
   const [apiKey, setApiKey] = useState("");
   const [voiceId, setVoiceId] = useState("");
   const [speechModel, setSpeechModel] = useState("");
+  const [summaryUrl, setSummaryUrl] = useState("");
+  const [summaryModel, setSummaryModel] = useState("");
+  const [summaryKey, setSummaryKey] = useState("");
+  const [summaryHasKey, setSummaryHasKey] = useState(false);
   const speechModelSave = useRef<string | null>(null);
   const [deviceVoice, setDeviceVoice] = useState(false);
   const [deviceVoiceReady, setDeviceVoiceReady] = useState(false);
@@ -76,11 +80,17 @@ export default function VoiceSettings() {
   const deviceVoiceSaveInFlight = useRef(false);
 
   const load = useCallback(async (nextProvider?: string) => {
-    const [nextCatalog, nextCredentials, nextStatus] = await Promise.all([
+    const [nextCatalog, nextCredentials, nextStatus, summary] = await Promise.all([
       rpc<VoiceCatalogEntry[]>("voice/catalog"),
       rpc<VoiceCredential[]>("voice/credentials"),
       rpc<VoiceStatus>("voice/status"),
+      rpc<{ configured: boolean; baseUrl: string; modelId: string; hasKey: boolean }>(
+        "voice/summaryConfig",
+      ).catch(() => ({ configured: false, baseUrl: "", modelId: "", hasKey: false })),
     ]);
+    setSummaryUrl(summary.baseUrl);
+    setSummaryModel(summary.modelId);
+    setSummaryHasKey(summary.hasKey);
     const selected = nextProvider || nextStatus.provider || nextCatalog[0]?.id || "";
     setCatalog(nextCatalog);
     setCredentials(nextCredentials);
@@ -310,6 +320,35 @@ export default function VoiceSettings() {
     }
   }
 
+  async function saveSummary() {
+    setPending("speech");
+    setError(null);
+    try {
+      if (!summaryUrl.trim() && !summaryModel.trim()) {
+        await rpc("voice/clearSummaryConfig");
+        setSummaryHasKey(false);
+        setSummaryKey("");
+        return;
+      }
+      const saved = await rpc<{ baseUrl: string; modelId: string; hasKey: boolean }>(
+        "voice/setSummaryConfig",
+        {
+          baseUrl: summaryUrl.trim(),
+          modelId: summaryModel.trim(),
+          ...(summaryKey.trim() ? { apiKey: summaryKey.trim() } : {}),
+        },
+      );
+      setSummaryUrl(saved.baseUrl);
+      setSummaryModel(saved.modelId);
+      setSummaryHasKey(saved.hasKey);
+      setSummaryKey("");
+    } catch (err) {
+      setError(errorText(err, t("Could not save the summary model")));
+    } finally {
+      setPending(null);
+    }
+  }
+
   async function testVoice() {
     setPending("test");
     setError(null);
@@ -387,6 +426,50 @@ export default function VoiceSettings() {
             })}
           </View>
         ) : null}
+        <Text style={styles.sectionLabel}>{t("Summarise")}</Text>
+        <View style={styles.group}>
+          <Text style={styles.fieldLabel}>{t("Server URL")}</Text>
+          <TextInput
+            accessibilityLabel={t("Server URL")}
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={summaryUrl}
+            onChangeText={setSummaryUrl}
+            placeholder="http://127.0.0.1:10001/v1"
+            placeholderTextColor={native.tertiaryLabel}
+            style={styles.input}
+          />
+          <Text style={styles.fieldLabel}>{t("Model")}</Text>
+          <TextInput
+            accessibilityLabel={t("Model")}
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={summaryModel}
+            onChangeText={setSummaryModel}
+            placeholder={t("Model")}
+            placeholderTextColor={native.tertiaryLabel}
+            style={styles.input}
+          />
+          <Text style={styles.fieldLabel}>{t("API key")}</Text>
+          <TextInput
+            accessibilityLabel={t("Summary API key")}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            value={summaryKey}
+            onChangeText={setSummaryKey}
+            placeholder={
+              summaryHasKey ? t("Saved. Paste to replace.") : t("Optional for a local server")
+            }
+            placeholderTextColor={native.tertiaryLabel}
+            style={styles.input}
+          />
+        </View>
+        <NativeActionButton
+          disabled={pending !== null}
+          label={pending === "speech" ? t("Checking…") : t("Save summary model")}
+          onPress={() => void saveSummary()}
+        />
         {selected && !deviceVoice ? (
           <>
             <TextInput
@@ -516,6 +599,7 @@ function createVoiceStyles() {
     rowCopy: { flex: 1 },
     cardTitle: { color: native.label, fontSize: 16 },
     cardMeta: { color: native.tertiaryLabel, marginTop: 4, fontSize: 12 },
+    sectionLabel: { color: native.secondaryLabel, fontSize: 13, marginTop: 12, marginLeft: 4 },
     fieldLabel: { color: native.label, marginTop: 16 },
     input: {
       marginTop: 8,

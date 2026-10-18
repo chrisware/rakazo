@@ -81,6 +81,7 @@ import {
   mapScratchpadItem,
   modelCredentialAuthKindsForSpace,
   modelCredentialDto,
+  normalizeOpenAiCompatibleBaseUrl,
   normalizeSecretDestination,
   PushSessionEndedError,
   parseModelSecret,
@@ -133,6 +134,7 @@ import type {
   ExportManifest,
   McpServer,
   Me,
+  MessageBlock,
   ProductEvent,
   Routine,
   SpaceNavigation,
@@ -160,6 +162,7 @@ import {
   hasMixedOneShotSchedule,
   isOneShotRoutineCrons,
   nextCronDateAcrossStrict,
+  spokenReplyText,
 } from "@rakazo/core";
 import type { BoardEvents, Board as BoardRow, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
@@ -291,9 +294,11 @@ import {
   disconnectVoiceCredential,
   listVoiceCatalog,
   loadDefaultVoiceCredential,
+  loadSpeechSummaryConfig,
   loadVoiceCredential,
   persistVoiceCredential,
   prepareVoice,
+  saveSpeechSummaryConfig,
   toVoiceCredential,
   toVoiceStatus,
   updateVoiceSpeechModel,
@@ -1294,7 +1299,14 @@ export function createRouter(deps: RouterDeps) {
       probeOpenAiCompatible: authed.models.probeOpenAiCompatible.handler(
         async ({ context, input }) => {
           try {
-            const models = await probeOpenAiCompatibleModels(input, undefined, context.signal);
+            const apiKey =
+              input.apiKey?.trim() ||
+              (await savedOpenAiCompatibleKey(deps, context.actor, input.baseUrl));
+            const models = await probeOpenAiCompatibleModels(
+              { ...input, apiKey },
+              undefined,
+              context.signal,
+            );
             return { models };
           } catch (error) {
             throw new ORPCError("BAD_REQUEST", {
@@ -1763,6 +1775,7 @@ export function createRouter(deps: RouterDeps) {
             sectionId: input.sectionId,
             voiceId: input.voiceId,
             autoSpeak: input.autoSpeak,
+            ...(input.speakMode !== undefined ? { speakMode: input.speakMode } : {}),
             ...(input.modelProvider !== undefined
               ? { modelProvider: input.modelProvider, modelId: input.modelId ?? null }
               : {}),
@@ -6171,6 +6184,50 @@ export function createRouter(deps: RouterDeps) {
       prepare: authed.voice.prepare.handler(async ({ context, input }) =>
         prepareVoice(deps, context.actor, input),
       ),
+      spokenText: authed.voice.spokenText.handler(async ({ context, input }) => {
+        const bot = await deps.prisma.bot.findFirst({
+          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
+          select: { id: true, speakMode: true, thread: { select: { id: true } } },
+        });
+        if (!bot?.thread) throw new IsolationError();
+        const message = await deps.prisma.message.findFirst({
+          where: { id: input.messageId, threadId: bot.thread.id, role: "bot" },
+          select: { blocks: true, spokenSummary: true },
+        });
+        if (!message) throw new IsolationError();
+        const blocks = message.blocks as MessageBlock[];
+        const mode = bot.speakMode === "summary" ? "summary" : "full";
+        const text = spokenReplyText(blocks, mode, message.spokenSummary);
+        return { text, hostSpoken: false };
+      }),
+      lastSummary: authed.voice.lastSummary.handler(async ({ context, input }) => {
+        const bot = await deps.prisma.bot.findFirst({
+          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
+          select: { thread: { select: { id: true } } },
+        });
+        if (!bot?.thread) throw new IsolationError();
+        const message = await deps.prisma.message.findFirst({
+          where: { threadId: bot.thread.id, role: "bot", spokenSummary: { not: null } },
+          orderBy: { seq: "desc" },
+          select: { spokenSummary: true },
+        });
+        return { text: message?.spokenSummary ?? "" };
+      }),
+      summaryConfig: authed.voice.summaryConfig.handler(async ({ context }) =>
+        loadSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor),
+      ),
+      setSummaryConfig: authed.voice.setSummaryConfig.handler(async ({ context, input }) =>
+        saveSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor, {
+          ...input,
+          signal: context.signal,
+        }),
+      ),
+      clearSummaryConfig: authed.voice.clearSummaryConfig.handler(async ({ context }) => {
+        await deps.prisma.speechSummaryConfig.deleteMany({
+          where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+        });
+        return { ok: true as const };
+      }),
     },
   });
 }
@@ -6361,6 +6418,33 @@ async function loadAutoReviewSettings(deps: RouterDeps, actor: Actor) {
   const enabled = preference?.enabled ?? deploymentAutoReviewDefault(process.env);
   const checkerAvailable = environmentAvailable || Boolean(credential);
   return { enabled, checkerAvailable };
+}
+
+async function savedOpenAiCompatibleKey(
+  deps: RouterDeps,
+  actor: Actor,
+  baseUrl: string,
+): Promise<string | undefined> {
+  const wanted = normalizeOpenAiCompatibleBaseUrl(baseUrl);
+  const rows = await deps.prisma.userModelCredential.findMany({
+    where: { userId: actor.userId, provider: OPENAI_COMPATIBLE_PROVIDER_ID },
+    select: { secretId: true },
+  });
+  for (const row of rows) {
+    const secret = await deps.prisma.secret.findFirst({
+      where: { id: row.secretId, userId: actor.userId },
+    });
+    if (!secret) continue;
+    try {
+      const parsed = parseModelSecret(await deps.secrets.load(secret.ciphertext, secret.id));
+      if (parsed.kind === "openai_compatible" && parsed.baseUrl.replace(/\/$/, "") === wanted) {
+        return parsed.apiKey;
+      }
+    } catch {
+      // A corrupt saved connection cannot block listing models with a typed key.
+    }
+  }
+  return undefined;
 }
 
 function hostCredentials(active: boolean, provider: string) {
