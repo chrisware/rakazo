@@ -438,11 +438,11 @@ model Bot {
   computerSwitching Boolean           @default(false)
   voiceId           String?
   autoSpeak         Boolean           @default(false)
-  /// full reads the reply; summary speaks a short spoken line.
-  speakMode         String            @default("full")
   modelProvider     String?
   modelId           String?
   thinkingLevel     String?
+  /// full reads the reply; summary speaks a short spoken line.
+  speakMode         String            @default("full")
   disabledBuiltinTools String[] @default([])
   webhookSecretId   String?
   teamChatAmbientEnabled Boolean @default(false)

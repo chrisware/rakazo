@@ -80,17 +80,11 @@ export default function VoiceSettings() {
   const deviceVoiceSaveInFlight = useRef(false);
 
   const load = useCallback(async (nextProvider?: string) => {
-    const [nextCatalog, nextCredentials, nextStatus, summary] = await Promise.all([
+    const [nextCatalog, nextCredentials, nextStatus] = await Promise.all([
       rpc<VoiceCatalogEntry[]>("voice/catalog"),
       rpc<VoiceCredential[]>("voice/credentials"),
       rpc<VoiceStatus>("voice/status"),
-      rpc<{ configured: boolean; baseUrl: string; modelId: string; hasKey: boolean }>(
-        "voice/summaryConfig",
-      ).catch(() => ({ configured: false, baseUrl: "", modelId: "", hasKey: false })),
     ]);
-    setSummaryUrl(summary.baseUrl);
-    setSummaryModel(summary.modelId);
-    setSummaryHasKey(summary.hasKey);
     const selected = nextProvider || nextStatus.provider || nextCatalog[0]?.id || "";
     setCatalog(nextCatalog);
     setCredentials(nextCredentials);
@@ -104,6 +98,20 @@ export default function VoiceSettings() {
     } else {
       setVoices([]);
     }
+    const summary = await rpc<{
+      configured: boolean;
+      baseUrl: string;
+      modelId: string;
+      hasKey: boolean;
+    }>("voice/summaryConfig").catch(() => ({
+      configured: false,
+      baseUrl: "",
+      modelId: "",
+      hasKey: false,
+    }));
+    setSummaryUrl(summary.baseUrl);
+    setSummaryModel(summary.modelId);
+    setSummaryHasKey(summary.hasKey);
   }, []);
 
   useFocusEffect(

@@ -914,6 +914,18 @@ export const appContract = {
   },
   voice: {
     catalog: oc.output(z.array(VoiceCatalogEntrySchema)),
+    lastSummary: oc.input(z.object({ botId: Id })).output(z.object({ text: z.string() })),
+    summaryConfig: oc.output(SpeechSummaryConfigSchema),
+    setSummaryConfig: oc
+      .input(
+        z.object({
+          baseUrl: z.string().trim().max(300),
+          modelId: z.string().trim().min(1).max(200),
+          apiKey: z.string().max(500).optional(),
+        }),
+      )
+      .output(SpeechSummaryConfigSchema),
+    clearSummaryConfig: oc.output(z.object({ ok: z.literal(true) })),
     status: oc.output(VoiceStatusSchema),
     credentials: oc.output(z.array(VoiceCredentialSchema)),
     connect: oc
@@ -947,18 +959,6 @@ export const appContract = {
         }),
       )
       .output(z.object({ ready: z.boolean(), utterances: z.array(z.string()) })),
-    lastSummary: oc.input(z.object({ botId: Id })).output(z.object({ text: z.string() })),
-    summaryConfig: oc.output(SpeechSummaryConfigSchema),
-    setSummaryConfig: oc
-      .input(
-        z.object({
-          baseUrl: z.string().trim().max(300),
-          modelId: z.string().trim().min(1).max(200),
-          apiKey: z.string().max(500).optional(),
-        }),
-      )
-      .output(SpeechSummaryConfigSchema),
-    clearSummaryConfig: oc.output(z.object({ ok: z.literal(true) })),
     spokenText: oc
       .input(z.object({ botId: Id, messageId: Id, speakOnHost: z.boolean().optional() }))
       .output(z.object({ text: z.string(), hostSpoken: z.boolean() })),

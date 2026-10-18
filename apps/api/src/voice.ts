@@ -14,7 +14,7 @@ import {
   voiceCatalogEntry,
 } from "@rakazo/adapters";
 import type { Actor, VoiceCredential, VoiceStatus } from "@rakazo/contracts";
-import { toUtterances } from "@rakazo/core";
+import { spokenReplyText, toUtterances } from "@rakazo/core";
 import {
   deleteUnreferencedCredentialSecret,
   findDefaultVoiceCredential,
@@ -29,6 +29,7 @@ import { getLogger } from "@rakazo/logging";
 import type { Context, Hono } from "hono";
 import { readBoundedBody } from "./http-body.js";
 import { withSerializableRetry } from "./serializable-retry.js";
+import { registerSpokenTextResolver } from "./spoken-text.js";
 
 export interface VoiceDeps {
   prisma: PrismaClient;
@@ -588,3 +589,16 @@ function voiceHttpError(c: Context, error: unknown) {
   getLogger().warn("voice request failed", { route: c.req.path, reason: message });
   return c.json({ error: message }, 502);
 }
+
+registerSpokenTextResolver(async ({ prisma, botId, messageId, blocks }) => {
+  const bot = await prisma.bot.findFirst({
+    where: { id: botId },
+    select: { speakMode: true },
+  });
+  const message = await prisma.message.findFirst({
+    where: { id: messageId },
+    select: { spokenSummary: true },
+  });
+  const mode = bot?.speakMode === "summary" ? "summary" : "full";
+  return spokenReplyText(blocks, mode, message?.spokenSummary ?? null);
+});

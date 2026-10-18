@@ -68,10 +68,10 @@ function mapBot(
     computer: { scope: string } | null;
     voiceId?: string | null;
     autoSpeak?: boolean;
-    speakMode?: string;
     modelProvider?: string | null;
     modelId?: string | null;
     thinkingLevel?: string | null;
+    speakMode?: string;
     teamChatAmbientEnabled?: boolean;
     teamChatRules?: string;
     disabledBuiltinTools?: string[];
@@ -112,10 +112,10 @@ function mapBot(
     updatedAt: updatedAt.toISOString(),
     voiceId: bot.voiceId ?? null,
     autoSpeak: bot.autoSpeak ?? false,
-    speakMode: bot.speakMode === "summary" ? "summary" : "full",
     modelProvider: bot.modelProvider ?? null,
     modelId: bot.modelId ?? null,
     thinkingLevel: (bot.thinkingLevel as Bot["thinkingLevel"]) ?? null,
+    speakMode: bot.speakMode === "summary" ? "summary" : "full",
     teamChatAmbientEnabled: bot.teamChatAmbientEnabled ?? false,
     teamChatRules: bot.teamChatRules ?? "",
     disabledBuiltinTools: bot.disabledBuiltinTools ?? [],

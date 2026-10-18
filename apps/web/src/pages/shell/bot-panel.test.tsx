@@ -11,10 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/rpc", () => ({
   rpc: {
     bots: { get: vi.fn(), update: vi.fn(), restoreInstructions: vi.fn() },
-    voice: {
-      voices: vi.fn().mockResolvedValue([]),
-      lastSummary: vi.fn().mockResolvedValue({ text: "" }),
-    },
+    voice: { voices: vi.fn().mockResolvedValue([]) },
     models: {
       credentials: vi.fn().mockResolvedValue([]),
       list: vi.fn().mockResolvedValue([]),
@@ -100,10 +97,10 @@ function bot(description = "Billing"): Bot {
     createdAt: "2026-09-01T00:00:00.000Z",
     voiceId: null,
     autoSpeak: false,
-    speakMode: "full",
     modelProvider: null,
     modelId: null,
     thinkingLevel: null,
+    speakMode: "full",
     teamChatAmbientEnabled: false,
     teamChatRules: "",
     disabledBuiltinTools: [],
@@ -171,6 +168,7 @@ async function clickSave() {
 }
 
 beforeEach(() => {
+  Object.assign(rpc.voice, { lastSummary: vi.fn().mockResolvedValue({ text: "" }) });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   onSave.mockReset().mockResolvedValue(undefined);
   vi.mocked(rpc.bots.update).mockReset();

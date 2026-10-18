@@ -162,7 +162,6 @@ import {
   hasMixedOneShotSchedule,
   isOneShotRoutineCrons,
   nextCronDateAcrossStrict,
-  spokenReplyText,
 } from "@rakazo/core";
 import type { BoardEvents, Board as BoardRow, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
@@ -272,6 +271,7 @@ import {
   readServerUpdateStatus,
   UpdaterProxyError,
 } from "./server-update.js";
+import { registerHostSpeaker, resolveSpokenText, speakOnHost } from "./spoken-text.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
 import {
   isBackgroundRun,
@@ -1775,11 +1775,11 @@ export function createRouter(deps: RouterDeps) {
             sectionId: input.sectionId,
             voiceId: input.voiceId,
             autoSpeak: input.autoSpeak,
-            ...(input.speakMode !== undefined ? { speakMode: input.speakMode } : {}),
             ...(input.modelProvider !== undefined
               ? { modelProvider: input.modelProvider, modelId: input.modelId ?? null }
               : {}),
             ...(input.thinkingLevel !== undefined ? { thinkingLevel } : {}),
+            ...(input.speakMode !== undefined ? { speakMode: input.speakMode } : {}),
             ...(input.teamChatAmbientEnabled !== undefined
               ? { teamChatAmbientEnabled: input.teamChatAmbientEnabled }
               : {}),
@@ -6096,6 +6096,34 @@ export function createRouter(deps: RouterDeps) {
     },
     voice: {
       catalog: authed.voice.catalog.handler(async () => listVoiceCatalog()),
+      lastSummary: authed.voice.lastSummary.handler(async ({ context, input }) => {
+        const bot = await deps.prisma.bot.findFirst({
+          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
+          select: { thread: { select: { id: true } } },
+        });
+        if (!bot?.thread) throw new IsolationError();
+        const message = await deps.prisma.message.findFirst({
+          where: { threadId: bot.thread.id, role: "bot", spokenSummary: { not: null } },
+          orderBy: { seq: "desc" },
+          select: { spokenSummary: true },
+        });
+        return { text: message?.spokenSummary ?? "" };
+      }),
+      summaryConfig: authed.voice.summaryConfig.handler(async ({ context }) =>
+        loadSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor),
+      ),
+      setSummaryConfig: authed.voice.setSummaryConfig.handler(async ({ context, input }) =>
+        saveSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor, {
+          ...input,
+          signal: context.signal,
+        }),
+      ),
+      clearSummaryConfig: authed.voice.clearSummaryConfig.handler(async ({ context }) => {
+        await deps.prisma.speechSummaryConfig.deleteMany({
+          where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
+        });
+        return { ok: true as const };
+      }),
       status: authed.voice.status.handler(async ({ context }) => {
         const cred = await findDefaultVoiceCredential(deps.prisma, context.actor);
         return toVoiceStatus(cred);
@@ -6187,46 +6215,29 @@ export function createRouter(deps: RouterDeps) {
       spokenText: authed.voice.spokenText.handler(async ({ context, input }) => {
         const bot = await deps.prisma.bot.findFirst({
           where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
-          select: { id: true, speakMode: true, thread: { select: { id: true } } },
+          select: { id: true, thread: { select: { id: true } } },
         });
         if (!bot?.thread) throw new IsolationError();
         const message = await deps.prisma.message.findFirst({
           where: { id: input.messageId, threadId: bot.thread.id, role: "bot" },
-          select: { blocks: true, spokenSummary: true },
+          select: { blocks: true },
         });
         if (!message) throw new IsolationError();
         const blocks = message.blocks as MessageBlock[];
-        const mode = bot.speakMode === "summary" ? "summary" : "full";
-        const text = spokenReplyText(blocks, mode, message.spokenSummary);
-        return { text, hostSpoken: false };
-      }),
-      lastSummary: authed.voice.lastSummary.handler(async ({ context, input }) => {
-        const bot = await deps.prisma.bot.findFirst({
-          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
-          select: { thread: { select: { id: true } } },
+        const text = await resolveSpokenText({
+          prisma: deps.prisma,
+          botId: bot.id,
+          threadId: bot.thread.id,
+          messageId: input.messageId,
+          blocks,
         });
-        if (!bot?.thread) throw new IsolationError();
-        const message = await deps.prisma.message.findFirst({
-          where: { threadId: bot.thread.id, role: "bot", spokenSummary: { not: null } },
-          orderBy: { seq: "desc" },
-          select: { spokenSummary: true },
+        const hostSpoken = await speakOnHost(deps, {
+          prisma: deps.prisma,
+          botId: bot.id,
+          text,
+          speakOnHost: input.speakOnHost === true,
         });
-        return { text: message?.spokenSummary ?? "" };
-      }),
-      summaryConfig: authed.voice.summaryConfig.handler(async ({ context }) =>
-        loadSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor),
-      ),
-      setSummaryConfig: authed.voice.setSummaryConfig.handler(async ({ context, input }) =>
-        saveSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor, {
-          ...input,
-          signal: context.signal,
-        }),
-      ),
-      clearSummaryConfig: authed.voice.clearSummaryConfig.handler(async ({ context }) => {
-        await deps.prisma.speechSummaryConfig.deleteMany({
-          where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
-        });
-        return { ok: true as const };
+        return { text: hostSpoken ? "" : text, hostSpoken };
       }),
     },
   });
@@ -6419,6 +6430,9 @@ async function loadAutoReviewSettings(deps: RouterDeps, actor: Actor) {
   const checkerAvailable = environmentAvailable || Boolean(credential);
   return { enabled, checkerAvailable };
 }
+
+// Imported so this branch shares the spoken-text module. Nothing registers host playback here.
+void registerHostSpeaker;
 
 async function savedOpenAiCompatibleKey(
   deps: RouterDeps,

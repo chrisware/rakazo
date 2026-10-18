@@ -1326,9 +1326,9 @@ export function ShellPage() {
     const messageId = lastBot.id;
     const botId = active.id;
     void rpc.voice
-      .spokenText({ botId, messageId })
+      .spokenText({ botId, messageId, speakOnHost: true })
       .then((spoken) => {
-        if (!spoken.text || autoSpoken.current !== messageId) return;
+        if (spoken.hostSpoken || !spoken.text || autoSpoken.current !== messageId) return;
         void speaker.speak(spoken.text, { botId, messageId });
       })
       .catch(() => undefined);
@@ -2420,9 +2420,9 @@ export function ShellPage() {
     const id = message.botId ?? activeBotId.current;
     if (!id) return;
     void rpc.voice
-      .spokenText({ botId: id, messageId: message.id })
+      .spokenText({ botId: id, messageId: message.id, speakOnHost: true })
       .then((spoken) => {
-        if (spoken.text) {
+        if (!spoken.hostSpoken && spoken.text) {
           void speaker.speak(spoken.text, { botId: id, messageId: message.id });
         }
       })

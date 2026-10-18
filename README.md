@@ -38,9 +38,10 @@ gateway is a separate process.
 ## Features
 
 - Persistent bots with their own conversations, memory, routines, and history
-- Voice mode: speak replies, dictate, and call a bot. Bring your own ElevenLabs, OpenAI, Cartesia, or Fish Audio key. A reply can be read in full or as a summary.
+- Voice mode: speak replies, dictate, and call a bot. Bring your own ElevenLabs, OpenAI, Cartesia, or Fish Audio key
 - Shared Team Computers and isolated Private computers
 - Browser, terminal, file, and graphical desktop access
+- A reply can be read in full or as a short spoken summary
 - Bots that can delegate to peer bots or short-lived subagents
 - Bring-your-own model credentials through Pi
 - App integrations through Composio or Pipedream Connect, plus user-installed Treg, remote MCP, and OpenAPI tool sources

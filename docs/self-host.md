@@ -951,15 +951,13 @@ Images use existing inline chat rendering. MP4 files can be previewed with nativ
 video controls on web and Electron and opened/downloaded through the existing
 native file flow on mobile. No new mobile player or settings screen is required.
 
-## Voice
-
-Voice providers are optional. ElevenLabs, OpenAI, Cartesia, and Fish Audio are connected in Voice settings with their own keys.
-
-Each bot can read the full reply or a short summary. The summary model is an OpenAI-compatible server URL, model, and optional API key saved in Voice settings. Leave it blank and the bot's own model writes the summary. Do not put that connection in `.env`.
-
 ## Connect mobile clients
 
 The iOS and Android app can also point at a self-hosted origin at runtime. On the sign-in screen, tap **Use a custom server** and enter the same HTTPS origin as `WEB_ORIGIN` (for example `https://app.example.com`). Store builds still default to `EXPO_PUBLIC_API_URL`; the in-app setting is an override for people running their own API. Changing the server signs the device out of any previous session.
+
+## Spoken summaries
+
+Each bot can read the full reply or a short summary. The summary model is an OpenAI-compatible server URL, model, and optional API key saved in Voice settings. Leave it blank and the bot's own model writes the summary. Do not put that connection in `.env`.
 
 ## Upload size
 
