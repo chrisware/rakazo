@@ -257,6 +257,7 @@ import {
   selectCompactedHistory,
   shouldEnqueueCompaction,
   shouldGenerateSpokenSummary,
+  speechSummaryUsage,
   summarizeForSpeech,
 } from "./history-compaction.js";
 import {
@@ -7626,6 +7627,17 @@ export function createRunExecutor(deps: ExecutorDeps) {
             ? await summarizeForSpeech(
                 {
                   runtime: deps.runtime,
+                  onUsage: (event) =>
+                    recordUsage(
+                      deps.prisma,
+                      event,
+                      speechSummaryUsage({
+                        spaceId: run.spaceId,
+                        userId: run.userId,
+                        botId: bot.id,
+                        runId,
+                      }),
+                    ),
                   resolveModel: async () =>
                     summaryConfig
                       ? {

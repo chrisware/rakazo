@@ -2,7 +2,7 @@ import type { AgentRunRequest, AgentRuntime, JobPublisher } from "@rakazo/adapte
 import { historyCompactJob } from "@rakazo/adapter-kit";
 import type { MessageBlock } from "@rakazo/contracts";
 import { blocksToAgentHistoryText } from "@rakazo/core";
-import type { PrismaClient } from "@rakazo/db";
+import type { PrismaClient, UsageAttribution } from "@rakazo/db";
 import { recordUsage } from "@rakazo/db";
 import { getLogger, unwrapJobPayload } from "@rakazo/logging";
 import { formatCurrentTimeInstruction } from "./current-time.js";
@@ -236,9 +236,28 @@ export function shouldGenerateSpokenSummary(input: {
   );
 }
 
+/** A speech summary belongs to the run that produced the reply, not to its session id. */
+export function speechSummaryUsage(input: {
+  spaceId: string;
+  userId: string;
+  botId: string;
+  runId: string;
+}): UsageAttribution {
+  return {
+    spaceId: input.spaceId,
+    userId: input.userId,
+    botId: input.botId,
+    runId: input.runId,
+    parentRunId: input.runId,
+    operationId: `speech-summary:${input.runId}`,
+    operationKind: "summary",
+  };
+}
+
 export async function summarizeForSpeech(
   deps: Pick<CompactHistoryDeps, "runtime"> & {
     resolveModel: NonNullable<CompactHistoryDeps["resolveModel"]>;
+    onUsage?: AgentRunRequest["onUsage"];
   },
   scope: { userId: string; spaceId: string; botId: string },
   reply: string,
@@ -254,6 +273,8 @@ export async function summarizeForSpeech(
       botId: scope.botId,
       threadId: `speak:${scope.botId}`,
       runId: `speak:${scope.botId}:${Date.now()}`,
+      usageOperationKind: "summary",
+      onUsage: deps.onUsage,
       prompt: reply.slice(0, 8_000),
       instructions: [
         "Rewrite the reply as speech. Two to five short lines: what happened, then what is next. One short closer is enough. Stay under 500 characters and finish the last sentence.",
@@ -275,6 +296,7 @@ export async function summarizeForSpeech(
         : AbortSignal.timeout(20_000),
     },
   )) {
+    if (event.type === "usage" && !event.accounted) await deps.onUsage?.(event);
     if (
       event.type === "done" &&
       event.text &&

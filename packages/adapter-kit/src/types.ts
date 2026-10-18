@@ -524,7 +524,14 @@ export interface AgentUsage {
   usageSource?: string | null;
 }
 
-export type UsageOperationKind = "answer" | "setup" | "retrieval" | "subagent" | "compaction";
+/** Compaction rewrites retained history. Summary is a summarizer call that does not. */
+export type UsageOperationKind =
+  | "answer"
+  | "setup"
+  | "retrieval"
+  | "subagent"
+  | "compaction"
+  | "summary";
 
 export interface ModelCallObserver {
   beforeCall(call: {
