@@ -959,6 +959,8 @@ The iOS and Android app can also point at a self-hosted origin at runtime. On th
 
 Each bot can read the full reply or a short summary. The summary model is an OpenAI-compatible server URL, model, and optional API key saved in Voice settings. Leave it blank and the bot's own model writes the summary. Do not put that connection in `.env`.
 
+The job is a short rewrite, so a small local model is enough. `Llama-3.2-1B-Instruct-4bit` is a fast choice.
+
 ## Upload size
 
 `MAX_UPLOAD_SIZE_MB` sets the per-file chat attachment and computer file transfer limit
