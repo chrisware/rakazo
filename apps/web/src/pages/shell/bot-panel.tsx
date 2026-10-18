@@ -304,10 +304,19 @@ export function BotSettings({
       .catch(() => undefined);
   }, []);
   useEffect(() => {
+    let current = true;
+    setLastSummary("");
     void rpc.voice
       .lastSummary({ botId: bot.id })
-      .then((result) => setLastSummary(result.text))
-      .catch(() => setLastSummary(""));
+      .then((result) => {
+        if (current) setLastSummary(result.text);
+      })
+      .catch(() => {
+        if (current) setLastSummary("");
+      });
+    return () => {
+      current = false;
+    };
   }, [bot.id]);
 
   const connectedOptions = connectedModelChoices(credentials, catalog);
