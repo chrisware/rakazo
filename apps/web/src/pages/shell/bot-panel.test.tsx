@@ -213,6 +213,53 @@ it("refreshes the last summary when a new reply arrives", async () => {
   expect(container.textContent).toContain("Next.");
 });
 
+it("keeps the shown summary until the new reply has finished", async () => {
+  let pending = true;
+  const lastSummary = vi.fn(async () => ({ text: pending ? "First." : "Next." }));
+  Object.assign(rpc.voice, { lastSummary });
+  await render();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  pending = false;
+
+  await act(async () => {
+    root.render(
+      <BotSettings
+        bot={bot()}
+        latestBotMessageId="message-2"
+        summaryPending
+        memoryProviderConfigured={false}
+        onSkillsChange={() => undefined}
+        onSave={onSave}
+        onExport={async () => undefined}
+        onClear={() => undefined}
+      />,
+    );
+    await Promise.resolve();
+  });
+  expect(container.textContent).toContain("First.");
+  expect(container.textContent).not.toContain("Next.");
+
+  await act(async () => {
+    root.render(
+      <BotSettings
+        bot={bot()}
+        latestBotMessageId="message-2"
+        summaryPending={false}
+        memoryProviderConfigured={false}
+        onSkillsChange={() => undefined}
+        onSave={onSave}
+        onExport={async () => undefined}
+        onClear={() => undefined}
+      />,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(container.textContent).toContain("Next.");
+});
+
 describe("BotSettings model choices", () => {
   it("submits DeepSeek API ids and does not offer a display label", async () => {
     vi.mocked(rpc.models.credentials).mockResolvedValueOnce([

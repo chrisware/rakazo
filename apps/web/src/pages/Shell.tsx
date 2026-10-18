@@ -4091,6 +4091,11 @@ export function ShellPage() {
                     .reverse()
                     .find((message) => message.role === "bot")?.id ?? null
                 }
+                summaryPending={
+                  activeSnapshot?.run?.status === "running" ||
+                  activeSnapshot?.run?.status === "queued" ||
+                  activeSnapshot?.run?.status === "leased"
+                }
                 memoryProviderConfigured={memoryProviderConfig != null}
                 onSkillsChange={setAgentSkills}
                 onSave={async ({ computerMode, ...patch }) => {

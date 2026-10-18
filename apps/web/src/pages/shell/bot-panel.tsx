@@ -201,6 +201,7 @@ export function CreateBotForm({
 export function BotSettings({
   bot,
   latestBotMessageId = null,
+  summaryPending = false,
   memoryProviderConfigured,
   onSkillsChange,
   onSave,
@@ -210,6 +211,8 @@ export function BotSettings({
   bot: Bot;
   /** Changes when a new bot reply arrives, so the open panel can refresh. */
   latestBotMessageId?: string | null;
+  /** The reply is visible before its spoken summary is saved. */
+  summaryPending?: boolean;
   onSkillsChange: (skills: AgentSkillCatalogEntry[]) => void;
   memoryProviderConfigured: boolean;
   onSave: (patch: {
@@ -307,8 +310,8 @@ export function BotSettings({
       .catch(() => undefined);
   }, []);
   useEffect(() => {
+    if (summaryPending) return;
     let current = true;
-    setLastSummary("");
     void rpc.voice
       .lastSummary({ botId: bot.id })
       .then((result) => {
@@ -320,7 +323,7 @@ export function BotSettings({
     return () => {
       current = false;
     };
-  }, [bot.id, latestBotMessageId]);
+  }, [bot.id, latestBotMessageId, summaryPending]);
 
   const connectedOptions = connectedModelChoices(credentials, catalog);
   const storedModel = modelKey ? parseModelOptionKey(modelKey) : null;
