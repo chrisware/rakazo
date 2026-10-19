@@ -295,6 +295,7 @@ import {
   threadHead,
   threadSnapshot,
 } from "./thread-target.js";
+import type { VoiceDeps } from "./voice.js";
 import {
   disconnectVoiceCredential,
   listVoiceCatalog,
@@ -305,7 +306,6 @@ import {
   toVoiceCredential,
   toVoiceStatus,
   updateVoiceSpeechModel,
-  type VoiceDeps,
   voiceContext,
   voiceCredentialServer,
 } from "./voice.js";

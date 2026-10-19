@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentRunRequest, AgentRuntime, AgentRuntimeEvent } from "@rakazo/adapter-kit";
 import type { Actor } from "@rakazo/contracts";
-import { type PrismaClient, recordUsage } from "@rakazo/db";
+import type { PrismaClient } from "@rakazo/db";
+import { recordUsage } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
 /** Replies longer than this many characters are summarized before a voice reads them. */
