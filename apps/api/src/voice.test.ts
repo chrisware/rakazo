@@ -1,6 +1,7 @@
 import * as adapters from "@rakazo/adapters";
 import type { Actor } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
+import * as db from "@rakazo/db";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,9 +13,13 @@ import {
   persistVoiceCredential,
   saveSpeechSummaryConfig,
   synthesizeVoice,
+  toVoiceCredential,
   toVoiceStatus,
   updateVoiceSpeechModel,
   type VoiceDeps,
+  voiceChoicesChanged,
+  voiceCredentialPlaintext,
+  voiceCredentialServer,
 } from "./voice.js";
 
 describe("toVoiceStatus", () => {

@@ -311,9 +311,11 @@ describe("Android mobile platform contract", () => {
   it("offers Voice settings when speaking has no configured provider", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
     const speaking = thread.slice(
-      thread.indexOf("void speakQueue(items)"),
+      thread.indexOf("const speak = useCallback("),
       thread.indexOf("async function startVoiceCall()"),
     );
+    expect(speaking).toContain('rpc<{ text: string; hostSpoken: boolean }>("voice/spokenText"');
+    expect(speaking).toContain("await speakQueue(items)");
     expect(speaking).toMatch(
       /if \(!spoken\)\s*Alert\.alert\(t\("Could not speak"\), t\("Add a voice provider in Voice settings\."\), \[\s*\{ text: t\("Cancel"\), style: "cancel" \},\s*\{ text: t\("Open Voice"\), onPress: \(\) => router\.push\("\/voice"\) \},\s*\]\)/,
     );

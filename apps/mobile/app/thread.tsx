@@ -216,6 +216,7 @@ import {
   loadVerifiedIntegrationsScope,
   subscribeSessionGeneration,
 } from "../lib/session";
+import { textForManualSpeech } from "../lib/spoken-playback";
 import type { SendAttempt } from "../lib/thread-feedback";
 import { confirmEchoes, subscribeDelivered, useThreadFeedback } from "../lib/thread-feedback";
 import { ThreadJumpAnchor } from "../lib/thread-jump";
@@ -1765,18 +1766,20 @@ function Thread({ sessionEpoch }: { sessionEpoch: number }) {
     [router],
   );
 
+  const manualSpeakGeneration = useRef(0);
   const speak = useCallback(
     (message: MobileMessage) => {
+      const generation = ++manualSpeakGeneration.current;
       const startIndex = visibleMessages.findIndex((candidate) => candidate.id === message.id);
       const fromHere = startIndex === -1 ? [message] : visibleMessages.slice(startIndex);
-      const items = fromHere.flatMap((candidate) => {
+      const queued = fromHere.flatMap((candidate) => {
         if (candidate.role !== "bot") return [];
-        const text = speakableMessageText(candidate);
-        if (!text) return [];
+        const fallback = speakableMessageText(candidate);
+        if (!fallback) return [];
         const speakerBotId = candidate.botId ?? botId ?? snap?.members?.[0]?.botId ?? "";
         return [
           {
-            text,
+            fallback,
             botId: speakerBotId,
             messageId: candidate.id,
             speaker: {
@@ -1786,18 +1789,44 @@ function Thread({ sessionEpoch }: { sessionEpoch: number }) {
           },
         ];
       });
-      if (items.length === 0) return;
-      void speakQueue(items)
-        .then((spoken) => {
-          if (!spoken)
-            Alert.alert(t("Could not speak"), t("Add a voice provider in Voice settings."), [
-              { text: t("Cancel"), style: "cancel" },
-              { text: t("Open Voice"), onPress: () => router.push("/voice") },
-            ]);
-        })
-        .catch((err: unknown) =>
-          Alert.alert(t("Could not speak"), errorText(err, t("Try again."))),
-        );
+      if (queued.length === 0) return;
+      void (async () => {
+        const items = (
+          await Promise.all(
+            queued.map(async (item) => {
+              const text = item.botId
+                ? await textForManualSpeech({
+                    fallback: item.fallback,
+                    lookup: () =>
+                      rpc<{ text: string; hostSpoken: boolean }>("voice/spokenText", {
+                        botId: item.botId,
+                        messageId: item.messageId,
+                        speakOnHost: false,
+                      }),
+                  })
+                : item.fallback;
+              if (!text) return null;
+              return {
+                text,
+                botId: item.botId,
+                messageId: item.messageId,
+                speaker: item.speaker,
+              };
+            }),
+          )
+        ).flatMap((item) => (item ? [item] : []));
+        if (generation !== manualSpeakGeneration.current || items.length === 0) return;
+        const spoken = await speakQueue(items);
+        if (generation !== manualSpeakGeneration.current) return;
+        if (!spoken)
+          Alert.alert(t("Could not speak"), t("Add a voice provider in Voice settings."), [
+            { text: t("Cancel"), style: "cancel" },
+            { text: t("Open Voice"), onPress: () => router.push("/voice") },
+          ]);
+      })().catch((err: unknown) => {
+        if (generation !== manualSpeakGeneration.current) return;
+        Alert.alert(t("Could not speak"), errorText(err, t("Try again.")));
+      });
     },
     [botId, displayName, mentionBots, snap?.members, visibleMessages],
   );

@@ -139,6 +139,7 @@ import type {
   ExportManifest,
   McpServer,
   Me,
+  MessageBlock,
   ProductEvent,
   Routine,
   SpaceNavigation,
@@ -168,6 +169,8 @@ import {
   hasMixedOneShotSchedule,
   isOneShotRoutineCrons,
   nextCronDateAcrossStrict,
+  speechFromBlocks,
+  spokenSummary,
 } from "@rakazo/core";
 import type { BoardEvents, Board as BoardRow, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
@@ -6262,9 +6265,11 @@ export function createRouter(deps: RouterDeps) {
         const message = await deps.prisma.message.findFirst({
           where: { threadId: bot.thread.id, role: "bot", spokenSummary: { not: null } },
           orderBy: { seq: "desc" },
-          select: { spokenSummary: true },
+          select: { spokenSummary: true, blocks: true },
         });
-        return { text: message?.spokenSummary ?? "" };
+        if (!message) return { text: "" };
+        const blocks = Array.isArray(message.blocks) ? (message.blocks as MessageBlock[]) : [];
+        return { text: spokenSummary(speechFromBlocks(blocks), message.spokenSummary) };
       }),
       summaryConfig: authed.voice.summaryConfig.handler(async ({ context }) =>
         loadSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor),
