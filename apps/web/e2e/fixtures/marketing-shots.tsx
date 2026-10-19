@@ -17,8 +17,6 @@ import "../../src/styles.css";
 
 const demoRpc: Record<string, unknown> = {
   "voice/voices": [],
-  "voice/lastSummary": { text: "" },
-  "voice/summaryConfig": { configured: false, baseUrl: "", modelId: "", hasKey: false },
   "models/credentials": [
     {
       id: "cred-demo",
@@ -92,7 +90,6 @@ function inboxBot(): Bot {
     modelProvider: "openai",
     modelId: "gpt-4.1",
     thinkingLevel: null,
-    speakMode: "full",
     teamChatAmbientEnabled: false,
     teamChatRules: "",
     webhookConfigured: false,

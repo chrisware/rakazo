@@ -3600,7 +3600,6 @@ describe("bot model auth on save", () => {
       modelProvider: "openai-codex",
       modelId,
       thinkingLevel: null,
-      speakMode: "full",
       teamChatAmbientEnabled: false,
       teamChatRules: "",
       webhookSecretId: null,

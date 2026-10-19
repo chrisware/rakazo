@@ -970,9 +970,7 @@ The iOS and Android app can also point at a self-hosted origin at runtime. On th
 
 ## Spoken summaries
 
-Each bot can read the full reply or a short summary. The summary model is an OpenAI-compatible server URL, model, and optional API key saved in Voice settings. Leave it blank and the bot's own model writes the summary. Do not put that connection in `.env`.
-
-The job is a short rewrite, so a small local model is enough. `Llama-3.2-1B-Instruct-4bit` is a fast choice.
+When a voice reads a bot reply aloud, a reply longer than `VOICE_SUMMARY_MIN_CHARS` characters (default `600`) is read as a short summary written by that bot's own model. The chat keeps the full reply. Set it to `0` to always read replies in full. If the summary call fails, the full reply is read.
 
 ## Upload size
 

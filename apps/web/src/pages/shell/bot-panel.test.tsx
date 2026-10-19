@@ -100,7 +100,6 @@ function bot(description = "Billing"): Bot {
     modelProvider: null,
     modelId: null,
     thinkingLevel: null,
-    speakMode: "full",
     teamChatAmbientEnabled: false,
     teamChatRules: "",
     disabledBuiltinTools: [],
@@ -168,7 +167,6 @@ async function clickSave() {
 }
 
 beforeEach(() => {
-  Object.assign(rpc.voice, { lastSummary: vi.fn().mockResolvedValue({ text: "" }) });
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   onSave.mockReset().mockResolvedValue(undefined);
   vi.mocked(rpc.bots.update).mockReset();
@@ -182,82 +180,6 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
-});
-
-it("refreshes the last summary when a new reply arrives", async () => {
-  const lastSummary = vi.fn().mockResolvedValue({ text: "First." });
-  Object.assign(rpc.voice, { lastSummary });
-  await render();
-  await act(async () => {
-    await Promise.resolve();
-  });
-  expect(container.querySelector("textarea")?.value).not.toBe("Next.");
-
-  lastSummary.mockResolvedValue({ text: "Next." });
-  await act(async () => {
-    root.render(
-      <BotSettings
-        bot={bot()}
-        latestBotMessageId="message-2"
-        memoryProviderConfigured={false}
-        onSkillsChange={() => undefined}
-        onSave={onSave}
-        onExport={async () => undefined}
-        onClear={() => undefined}
-      />,
-    );
-    await Promise.resolve();
-  });
-
-  expect(lastSummary).toHaveBeenCalledTimes(2);
-  expect(container.textContent).toContain("Next.");
-});
-
-it("keeps the shown summary until the new reply has finished", async () => {
-  let pending = true;
-  const lastSummary = vi.fn(async () => ({ text: pending ? "First." : "Next." }));
-  Object.assign(rpc.voice, { lastSummary });
-  await render();
-  await act(async () => {
-    await Promise.resolve();
-  });
-  pending = false;
-
-  await act(async () => {
-    root.render(
-      <BotSettings
-        bot={bot()}
-        latestBotMessageId="message-2"
-        summaryPending
-        memoryProviderConfigured={false}
-        onSkillsChange={() => undefined}
-        onSave={onSave}
-        onExport={async () => undefined}
-        onClear={() => undefined}
-      />,
-    );
-    await Promise.resolve();
-  });
-  expect(container.textContent).toContain("First.");
-  expect(container.textContent).not.toContain("Next.");
-
-  await act(async () => {
-    root.render(
-      <BotSettings
-        bot={bot()}
-        latestBotMessageId="message-2"
-        summaryPending={false}
-        memoryProviderConfigured={false}
-        onSkillsChange={() => undefined}
-        onSave={onSave}
-        onExport={async () => undefined}
-        onClear={() => undefined}
-      />,
-    );
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-  expect(container.textContent).toContain("Next.");
 });
 
 describe("BotSettings model choices", () => {

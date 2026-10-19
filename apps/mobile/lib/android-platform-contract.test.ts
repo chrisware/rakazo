@@ -215,10 +215,10 @@ describe("Android mobile platform contract", () => {
     expect(nonSpaceAtStart.test("\u200Btext")).toBe(true);
   });
 
-  it("centers the latest-message control and clears a thread's Android notifications when read", () => {
+  it("trailing-aligns the latest-message control and clears a thread's Android notifications when read", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
     const notifications = readFileSync(resolve(mobileRoot, "lib/live-notifications.ts"), "utf8");
-    expect(thread).toContain('left: "50%"');
+    expect(thread).toContain('position: "absolute", end: 0, bottom: 12');
     expect(thread).toContain("dismissThreadNotifications");
     expect(notifications).toContain("getPresentedNotificationsAsync");
     expect(notifications).toContain("dismissNotificationAsync");
@@ -311,11 +311,9 @@ describe("Android mobile platform contract", () => {
   it("offers Voice settings when speaking has no configured provider", () => {
     const thread = readFileSync(resolve(mobileRoot, "app/thread.tsx"), "utf8");
     const speaking = thread.slice(
-      thread.indexOf("const speak = useCallback("),
+      thread.indexOf("void speakQueue(items)"),
       thread.indexOf("async function startVoiceCall()"),
     );
-    expect(speaking).toContain('rpc<{ text: string; hostSpoken: boolean }>("voice/spokenText"');
-    expect(speaking).toContain("await speakQueue(items)");
     expect(speaking).toMatch(
       /if \(!spoken\)\s*Alert\.alert\(t\("Could not speak"\), t\("Add a voice provider in Voice settings\."\), \[\s*\{ text: t\("Cancel"\), style: "cancel" \},\s*\{ text: t\("Open Voice"\), onPress: \(\) => router\.push\("\/voice"\) \},\s*\]\)/,
     );

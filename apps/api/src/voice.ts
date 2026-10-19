@@ -1,8 +1,6 @@
 import { ORPCError } from "@orpc/server";
 import type { AdapterContext, SecretStore } from "@rakazo/adapter-kit";
 import {
-  assertAllowedOpenAiCompatibleUrl,
-  assertHttpsForKeyedOpenAiCompatibleUrl,
   createVoiceProvider,
   isFishSpeechModelId,
   isVoiceProviderId,
@@ -12,12 +10,11 @@ import {
   NoVoiceConfigured,
   OPENAI_COMPATIBLE_VOICE_PROVIDER_ID,
   openAiCompatibleVoiceServer,
-  probeOpenAiCompatibleModels,
   serializeOpenAiCompatibleVoiceSecret,
   voiceCatalogEntry,
 } from "@rakazo/adapters";
 import type { Actor, VoiceCredential, VoiceStatus } from "@rakazo/contracts";
-import { spokenReplyText, toUtterances } from "@rakazo/core";
+import { speakable, toUtterances } from "@rakazo/core";
 import {
   deleteUnreferencedCredentialSecret,
   findDefaultVoiceCredential,
@@ -32,11 +29,13 @@ import { getLogger } from "@rakazo/logging";
 import type { Context, Hono } from "hono";
 import { readBoundedBody } from "./http-body.js";
 import { withSerializableRetry } from "./serializable-retry.js";
-import { registerSpokenTextResolver } from "./spoken-text.js";
+import type { SpeechSummarizer } from "./speech-summary.js";
 
 export interface VoiceDeps {
   prisma: PrismaClient;
   secrets: SecretStore;
+  /** Long bot replies are read as a summary from the bot's own model. */
+  speechSummary?: { summarize: SpeechSummarizer; minChars: number };
 }
 
 export { listVoiceCatalog };
@@ -436,117 +435,10 @@ export async function updateVoiceSpeechModel(
   );
 }
 
-export async function saveSpeechSummaryConfig(
-  deps: VoiceDeps,
-  actor: Actor,
-  input: { baseUrl: string; modelId: string; apiKey?: string; signal?: AbortSignal },
-) {
-  const modelId = input.modelId.trim();
-  if (!modelId) throw new ORPCError("BAD_REQUEST", { message: "Model id is required." });
-  let allowed: URL;
-  try {
-    allowed = assertAllowedOpenAiCompatibleUrl(input.baseUrl);
-    assertHttpsForKeyedOpenAiCompatibleUrl(allowed, input.apiKey);
-  } catch (error) {
-    throw new ORPCError("BAD_REQUEST", {
-      message: error instanceof Error ? error.message : "That server URL is not allowed.",
-    });
-  }
-  const existing = await deps.prisma.speechSummaryConfig.findUnique({
-    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
-  });
-  const nextUrl = allowed.href.replace(/\/$/, "");
-  const sameServer = existing?.baseUrl.replace(/\/$/, "") === nextUrl;
-  const existingSecret =
-    sameServer && existing?.secretId
-      ? await deps.prisma.secret.findFirst({
-          where: { id: existing.secretId, userId: actor.userId },
-        })
-      : null;
-  const typedKey = input.apiKey?.trim();
-  const savedKey =
-    !typedKey && existingSecret
-      ? await deps.secrets.load(existingSecret.ciphertext, existingSecret.id).catch(() => "")
-      : "";
-  const apiKey = typedKey || savedKey;
-  try {
-    const models = await probeOpenAiCompatibleModels(
-      { baseUrl: allowed.href, apiKey },
-      undefined,
-      input.signal,
-    );
-    if (models.length > 0 && !models.includes(modelId)) {
-      throw new ORPCError("BAD_REQUEST", { message: `That server does not list ${modelId}.` });
-    }
-  } catch (error) {
-    if (error instanceof ORPCError) throw error;
-    throw new ORPCError("BAD_REQUEST", {
-      message: error instanceof Error ? error.message : "Could not reach that model server.",
-    });
-  }
-  const stored = input.apiKey?.trim()
-    ? await deps.secrets.put(input.apiKey.trim(), voiceContext(actor, input.signal))
-    : null;
-  const secret = stored
-    ? await deps.prisma.secret.create({
-        data: {
-          id: stored.id,
-          userId: actor.userId,
-          kind: "voice",
-          ciphertext: stored.ciphertext,
-        },
-      })
-    : null;
-  const replacedSecretId =
-    existing?.secretId && existing.secretId !== secret?.id && (secret || !sameServer)
-      ? existing.secretId
-      : null;
-  await deps.prisma.$transaction(async (tx) => {
-    await tx.speechSummaryConfig.upsert({
-      where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
-      create: {
-        spaceId: actor.spaceId,
-        userId: actor.userId,
-        baseUrl: nextUrl,
-        modelId,
-        secretId: secret?.id,
-      },
-      update: {
-        baseUrl: nextUrl,
-        modelId,
-        ...(!sameServer ? { secretId: secret?.id ?? null } : {}),
-        ...(secret ? { secretId: secret.id } : {}),
-      },
-    });
-    if (replacedSecretId) {
-      await tx.secret.deleteMany({ where: { id: replacedSecretId, userId: actor.userId } });
-    }
-  });
-  return {
-    configured: true,
-    baseUrl: nextUrl,
-    modelId,
-    hasKey: Boolean(secret || (sameServer && existing?.secretId)),
-  };
-}
-
-export async function loadSpeechSummaryConfig(deps: VoiceDeps, actor: Actor) {
-  const row = await deps.prisma.speechSummaryConfig.findUnique({
-    where: { spaceId_userId: { spaceId: actor.spaceId, userId: actor.userId } },
-  });
-  if (!row) return { configured: false, baseUrl: "", modelId: "", hasKey: false };
-  return {
-    configured: true,
-    baseUrl: row.baseUrl,
-    modelId: row.modelId,
-    hasKey: Boolean(row.secretId),
-  };
-}
-
 export async function prepareVoice(
   deps: VoiceDeps,
   actor: Actor,
-  input: { text: string; voiceId?: string; botId?: string },
+  input: { text: string; voiceId?: string; botId?: string; signal?: AbortSignal },
 ) {
   try {
     await resolveVoiceTarget(deps, actor, input);
@@ -556,7 +448,18 @@ export async function prepareVoice(
     }
     throw error;
   }
-  return { ready: true, utterances: toUtterances(input.text) };
+  return { ready: true, utterances: toUtterances(await spokenText(deps, actor, input)) };
+}
+
+async function spokenText(
+  deps: VoiceDeps,
+  actor: Actor,
+  input: { text: string; botId?: string; signal?: AbortSignal },
+): Promise<string> {
+  const summary = deps.speechSummary;
+  if (!input.botId || !summary || summary.minChars <= 0) return input.text;
+  if (speakable(input.text).length <= summary.minChars) return input.text;
+  return (await summary.summarize(actor, input.botId, input.text, input.signal)) ?? input.text;
 }
 
 export async function synthesizeVoice(
@@ -711,16 +614,3 @@ function voiceHttpError(c: Context, error: unknown) {
   getLogger().warn("voice request failed", { route: c.req.path, reason: message });
   return c.json({ error: message }, 502);
 }
-
-registerSpokenTextResolver(async ({ prisma, botId, messageId, blocks }) => {
-  const bot = await prisma.bot.findFirst({
-    where: { id: botId },
-    select: { speakMode: true },
-  });
-  const message = await prisma.message.findFirst({
-    where: { id: messageId },
-    select: { spokenSummary: true },
-  });
-  const mode = bot?.speakMode === "summary" ? "summary" : "full";
-  return spokenReplyText(blocks, mode, message?.spokenSummary ?? null);
-});

@@ -24,57 +24,8 @@ import {
   SUMMARIZE_TIMEOUT_MIN_MS,
   selectCompactedHistory,
   shouldEnqueueCompaction,
-  shouldGenerateSpokenSummary,
-  speechSummaryUsage,
-  summarizeForSpeech,
   summarizeTimeoutMs,
 } from "./history-compaction.js";
-
-describe("speechSummaryUsage", () => {
-  it("keeps the speech call on the run that produced the reply", () => {
-    expect(
-      speechSummaryUsage({
-        spaceId: "space-1",
-        userId: "user-1",
-        botId: "bot-1",
-        runId: "run-1",
-      }),
-    ).toEqual({
-      spaceId: "space-1",
-      userId: "user-1",
-      botId: "bot-1",
-      runId: "run-1",
-      parentRunId: "run-1",
-      operationId: "speech-summary:run-1",
-      operationKind: "summary",
-    });
-  });
-});
-
-describe("shouldGenerateSpokenSummary", () => {
-  const ready = {
-    speakMode: "summary",
-    autoSpeak: true,
-    blockCount: 1,
-    background: false,
-    text: "The reply.",
-  };
-
-  it("summarises a saved reply", () => {
-    expect(shouldGenerateSpokenSummary(ready)).toBe(true);
-  });
-
-  it("skips a run that will not save a message", () => {
-    expect(shouldGenerateSpokenSummary({ ...ready, blockCount: 0 })).toBe(false);
-    expect(shouldGenerateSpokenSummary({ ...ready, background: true })).toBe(false);
-    expect(shouldGenerateSpokenSummary({ ...ready, text: "  " })).toBe(false);
-  });
-
-  it("skips full replies and bots that are not reading aloud", () => {
-    expect(shouldGenerateSpokenSummary({ ...ready, speakMode: "full" })).toBe(false);
-    expect(shouldGenerateSpokenSummary({ ...ready, autoSpeak: false })).toBe(false);
-  });
-});
 
 describe("shouldEnqueueCompaction", () => {
   it("is false when nothing has aged out of the window yet", () => {
@@ -1251,73 +1202,6 @@ describe("compactHistory", () => {
 
     expect(harness.thread.historyCompactedUpToSeq).toBe(49);
     expect(harness.thread.historyCompactionSummary).toBe("Summary of 50 messages.");
-  });
-
-  it("passes a cancelled run through to the summary model call", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    let seen: AbortSignal | undefined;
-    const runtime = {
-      describe: () => ({
-        capabilities: { compaction: true },
-      }),
-      run: vi.fn(async function* (_request: unknown, ctx: { signal: AbortSignal }) {
-        seen = ctx.signal;
-        yield { type: "done" as const, text: "Done." };
-      }),
-    };
-
-    await summarizeForSpeech(
-      {
-        runtime: runtime as unknown as AgentRuntime,
-        resolveModel: async () => ({ provider: "openai", id: "gpt" }) as AgentRunRequest["model"],
-      },
-      { userId: "user-1", spaceId: "space-1", botId: "bot-1" },
-      "The long reply.",
-      controller.signal,
-    );
-
-    expect(seen?.aborted).toBe(true);
-  });
-
-  it("attributes the speech model call as one summary", async () => {
-    const onUsage = vi.fn(async () => undefined);
-    const usage = {
-      type: "usage" as const,
-      provider: "openai-compatible",
-      model: "llama",
-      inputTokens: 10,
-      outputTokens: 4,
-      totalTokens: 14,
-      accounted: false,
-    };
-    let request: { usageOperationKind?: string; onUsage?: unknown } | undefined;
-    const runtime = {
-      describe: () => ({ capabilities: { compaction: true } }),
-      run: vi.fn(async function* (next: { usageOperationKind?: string; onUsage?: unknown }) {
-        request = next;
-        yield usage;
-        yield { ...usage, accounted: true, outputTokens: 1 };
-        yield { type: "done" as const, text: "Done." };
-      }),
-    };
-
-    const summary = await summarizeForSpeech(
-      {
-        runtime: runtime as unknown as AgentRuntime,
-        resolveModel: async () =>
-          ({ provider: "openai-compatible", id: "llama" }) as AgentRunRequest["model"],
-        onUsage,
-      },
-      { userId: "user-1", spaceId: "space-1", botId: "bot-1" },
-      "The long reply.",
-    );
-
-    expect(summary).toBe("Done.");
-    expect(request?.usageOperationKind).toBe("summary");
-    expect(request?.onUsage).toBe(onUsage);
-    expect(onUsage).toHaveBeenCalledTimes(1);
-    expect(onUsage).toHaveBeenCalledWith(usage);
   });
 
   it("does not advance or re-enqueue if another worker already moved the cursor", async () => {

@@ -56,7 +56,6 @@ const bot: MobileBot = {
   modelId: null,
   thinkingLevel: null,
   autoSpeak: false,
-  speakMode: "full",
 };
 
 describe("spaceInboxItems", () => {

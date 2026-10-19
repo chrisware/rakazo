@@ -52,7 +52,6 @@ export interface CreateThreadMessageInput {
   runId?: string;
   clientNonce?: string;
   markUnread?: boolean;
-  spokenSummary?: string | null;
   /** Terminal echo after the run is already cancelled. Every other write stays rejected. */
   allowCancelledRun?: boolean;
 }
@@ -89,7 +88,6 @@ export async function createThreadMessageInTransaction(
       replyQuote: input.replyQuote,
       runId: input.runId,
       clientNonce: input.clientNonce,
-      ...(input.spokenSummary !== undefined ? { spokenSummary: input.spokenSummary } : {}),
     },
   });
 }

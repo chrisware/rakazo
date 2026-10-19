@@ -11,7 +11,7 @@ import {
   MAX_TRANSCRIBE_REQUEST_BYTES,
   mountVoiceHttpRoutes,
   persistVoiceCredential,
-  saveSpeechSummaryConfig,
+  prepareVoice,
   synthesizeVoice,
   toVoiceCredential,
   toVoiceStatus,
@@ -405,6 +405,61 @@ describe("updateVoiceSpeechModel", () => {
   });
 });
 
+describe("prepareVoice", () => {
+  const long = "The deploy finished and every check passed. ".repeat(20);
+
+  function depsWith(summarize: ReturnType<typeof vi.fn>, minChars = 600) {
+    const prisma = {
+      bot: { findFirst: vi.fn().mockResolvedValue({ voiceId: "voice-1" }) },
+      spaceVoicePreference: {
+        findFirst: vi.fn().mockResolvedValue({
+          isDefault: true,
+          voiceId: "voice-1",
+          speechModel: "",
+          credential: {
+            id: "cred-1",
+            userId: actor.userId,
+            provider: "elevenlabs",
+            secretId: "secret-1",
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+          },
+        }),
+      },
+      secret: { findFirst: vi.fn().mockResolvedValue({ id: "secret-1", ciphertext: "c" }) },
+    };
+    return {
+      prisma,
+      secrets: { load: vi.fn().mockReturnValue("key"), put: vi.fn() },
+      speechSummary: { summarize, minChars },
+    } as unknown as VoiceDeps;
+  }
+
+  it("reads a long bot reply as the bot model's summary", async () => {
+    const summarize = vi.fn().mockResolvedValue("Deploy done. Next, the release notes.");
+    const result = await prepareVoice(depsWith(summarize), actor, { text: long, botId: "bot-1" });
+    expect(summarize).toHaveBeenCalledWith(actor, "bot-1", long, undefined);
+    expect(result).toEqual({
+      ready: true,
+      utterances: ["Deploy done.", "Next, the release notes."],
+    });
+  });
+
+  it("reads short replies, and replies when summarizing fails or is off, in full", async () => {
+    const failing = vi.fn().mockResolvedValue(null);
+    const short = await prepareVoice(depsWith(failing), actor, { text: "Done.", botId: "bot-1" });
+    expect(short.utterances).toEqual(["Done."]);
+    expect(failing).not.toHaveBeenCalled();
+
+    const failed = await prepareVoice(depsWith(failing), actor, { text: long, botId: "bot-1" });
+    expect(failed.utterances.join(" ")).toContain("every check passed");
+
+    const off = vi.fn();
+    await prepareVoice(depsWith(off, 0), actor, { text: long, botId: "bot-1" });
+    expect(off).not.toHaveBeenCalled();
+  });
+});
+
 describe("synthesizeVoice", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -486,79 +541,6 @@ describe("synthesizeVoice", () => {
     await synthesizeVoice(deps, actor, { text: "Hello" });
 
     expect(synthesize.mock.calls[0]?.[0]).toMatchObject({ model: undefined });
-  });
-});
-
-describe("saveSpeechSummaryConfig", () => {
-  const baseUrl = "http://127.0.0.1:11434/v1";
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  function summaryDeps(load: () => Promise<string>) {
-    const tx = {
-      speechSummaryConfig: { upsert: vi.fn(async () => undefined) },
-      secret: { deleteMany: vi.fn(async () => ({ count: 0 })) },
-    };
-    const deps = {
-      prisma: {
-        speechSummaryConfig: {
-          findUnique: vi.fn(async () => ({
-            baseUrl,
-            modelId: "llama",
-            secretId: "sec-1",
-          })),
-        },
-        secret: {
-          findFirst: vi.fn(async () => ({ id: "sec-1", ciphertext: "cipher" })),
-          create: vi.fn(async ({ data }: { data: { id: string } }) => data),
-        },
-        $transaction: vi.fn(async (run: (client: typeof tx) => Promise<void>) => run(tx)),
-      },
-      secrets: {
-        load: vi.fn(load),
-        put: vi.fn(async () => ({ id: "sec-2", ciphertext: "stored" })),
-      },
-    } as unknown as VoiceDeps;
-    return { deps, tx };
-  }
-
-  it("stores a pasted key without reading the saved secret", async () => {
-    vi.spyOn(adapters, "probeOpenAiCompatibleModels").mockResolvedValue(["llama"]);
-    const { deps } = summaryDeps(async () => {
-      throw new Error("rotated store key");
-    });
-
-    const saved = await saveSpeechSummaryConfig(deps, actor, {
-      baseUrl,
-      modelId: "llama",
-      apiKey: "new-key",
-    });
-
-    expect(deps.secrets.load).not.toHaveBeenCalled();
-    expect(adapters.probeOpenAiCompatibleModels).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: "new-key" }),
-      undefined,
-      undefined,
-    );
-    expect(deps.secrets.put).toHaveBeenCalled();
-    expect(saved).toMatchObject({ configured: true, modelId: "llama", hasKey: true });
-  });
-
-  it("treats an unreadable saved key as absent", async () => {
-    vi.spyOn(adapters, "probeOpenAiCompatibleModels").mockResolvedValue(["llama"]);
-    const { deps } = summaryDeps(async () => {
-      throw new Error("rotated store key");
-    });
-
-    await saveSpeechSummaryConfig(deps, actor, { baseUrl, modelId: "llama" });
-
-    expect(adapters.probeOpenAiCompatibleModels).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: "" }),
-      undefined,
-      undefined,
-    );
   });
 });
 

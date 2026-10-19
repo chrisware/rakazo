@@ -97,7 +97,6 @@ describe("Pi usage accounting", () => {
     { kind: "answer", afterUser: true, expected: "answer" },
     { kind: "subagent", afterUser: false, expected: "subagent" },
     { kind: "setup", afterUser: false, expected: "setup" },
-    { kind: "summary", afterUser: false, expected: "summary" },
   ] as const)(
     "attributes history-result consumption to $expected while preserving $kind precedence",
     async ({ kind, afterUser, expected }) => {

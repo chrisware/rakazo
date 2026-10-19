@@ -23,7 +23,6 @@ import { glassHeaderOptions } from "../components/glass-title";
 import type { MenuPickerChoice } from "../components/menu-picker";
 import { MenuPicker, MenuPickerMenu } from "../components/menu-picker";
 import { NativeActionButton } from "../components/native-action-button";
-import { NativeSegmentedControl } from "../components/native-segmented-control";
 import { NativeSwitch } from "../components/native-switch";
 import { NativeSymbol } from "../components/native-symbol";
 import { Chevron } from "../components/row-accessories";
@@ -57,7 +56,6 @@ export default function BotSettingsScreen() {
   const [modelKey, setModelKey] = useState("");
   const [thinkingLevel, setThinkingLevel] = useState("");
   const [autoSpeak, setAutoSpeak] = useState(false);
-  const [speakMode, setSpeakMode] = useState<"full" | "summary">("full");
   const [credentials, setCredentials] = useState<MobileModelCredential[]>([]);
   const [catalog, setCatalog] = useState<MobileModel[]>([]);
   const [me, setMe] = useState<MobileMe | null>(null);
@@ -90,7 +88,6 @@ export default function BotSettingsScreen() {
         );
         setThinkingLevel(next.thinkingLevel ?? "");
         setAutoSpeak(next.autoSpeak);
-        setSpeakMode(next.speakMode === "summary" ? "summary" : "full");
       })
       .catch((err) => setError(errorText(err, t("Could not load bot"))));
   }, [botId]);
@@ -292,7 +289,6 @@ export default function BotSettingsScreen() {
         modelId?: string | null;
         thinkingLevel?: ThinkingLevel | null;
         autoSpeak?: boolean;
-        speakMode?: "full" | "summary";
       } = { botId };
       if (profile.name !== bot.name) input.name = profile.name;
       if (profile.title !== bot.title) input.title = profile.title;
@@ -318,9 +314,6 @@ export default function BotSettingsScreen() {
           : null;
       }
       if (autoSpeak !== bot.autoSpeak) input.autoSpeak = autoSpeak;
-      if (speakMode !== (bot.speakMode === "summary" ? "summary" : "full")) {
-        input.speakMode = speakMode;
-      }
       if (computerMode !== bot.computerMode) {
         await rpc(
           "bots/setComputer",
@@ -491,19 +484,6 @@ export default function BotSettingsScreen() {
             value={autoSpeak}
           />
         </View>
-        {autoSpeak ? (
-          <View style={{ marginTop: 12 }}>
-            <NativeSegmentedControl
-              accessibilityLabel={t("Read")}
-              onChange={setSpeakMode}
-              options={[
-                { value: "full", label: t("Full reply") },
-                { value: "summary", label: t("Summary") },
-              ]}
-              value={speakMode}
-            />
-          </View>
-        ) : null}
         {deviceVoiceEnabled ? (
           voiceError ? (
             <Pressable

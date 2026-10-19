@@ -116,6 +116,7 @@ import { monitoringRoutes } from "./monitoring.js";
 import { mountApiRequestBodyLimits } from "./request-body-limit.js";
 import { createRouter } from "./router.js";
 import { mountScreenTarget } from "./screen-proxy.js";
+import { createSpeechSummarizer } from "./speech-summary.js";
 import { isDeferredReservationLost, TeamChatBridge } from "./team-chat-bridge.js";
 import { ModelTeamChatEngagementJudge } from "./team-chat-judge.js";
 import {
@@ -542,6 +543,14 @@ export async function createApp(
   reconciler?.start();
 
   const router = createRouter({
+    speechSummary: {
+      minChars: env.voiceSummaryMinChars,
+      summarize: createSpeechSummarizer({
+        prisma,
+        runtime,
+        resolveModel: executor.resolveModel,
+      }),
+    },
     cloudAgent,
     codexCatalog,
     prisma,

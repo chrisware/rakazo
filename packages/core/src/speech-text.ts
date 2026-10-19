@@ -196,28 +196,6 @@ export function narrateTool(toolName: string): string | null {
   return /^[\w .:/-]+$/.test(short) ? `running ${short}` : null;
 }
 
-export const SPOKEN_SUMMARY_MAX_CHARS = 500;
-
-export const SPOKEN_SUMMARY_INSTRUCTION =
-  "Rewrite this reply as speech. Two to five short lines: what happened, then what is next. One short closer is enough. Stay under 500 characters and finish the last sentence. Plain speech only. No markdown, JSON, URLs, file paths, timestamps, hashes, or secrets.";
-
-/** The line Read replies aloud speaks before a voice provider sees it. */
-export function spokenReplyText(
-  blocks: MessageBlock[],
-  mode: "full" | "summary" = "full",
-  summary: string | null = null,
-): string {
-  if (mode === "summary") return spokenSummary(speechFromBlocks(blocks), summary);
-  return speakable(speechFromBlocks(blocks));
-}
-
-/** A model summary, or a capped cleanup of the reply when the model gives nothing usable. */
-export function spokenSummary(reply: string, modelText: string | null | undefined): string {
-  const summary = modelText?.trim() ? speakable(modelText) : "";
-  if (summary && !summary.startsWith(". (")) return summary.slice(0, SPOKEN_SUMMARY_MAX_CHARS);
-  return speakable(reply).slice(0, SPOKEN_SUMMARY_MAX_CHARS);
-}
-
 export function speechFromBlocks(blocks: MessageBlock[]): string {
   return blocks
     .map((block) => {

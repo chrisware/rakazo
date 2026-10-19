@@ -125,7 +125,6 @@ export type FinalizeRunInput = FinalizeRunBase &
     | {
         outcome: "completed";
         blocks: MessageBlock[];
-        spokenSummary?: string | null;
         markUnread?: boolean;
       }
     | { outcome: "failed"; error: string }
@@ -1318,7 +1317,6 @@ async function finalizeRunOnce(
           botId: input.botId,
           runId: input.runId,
           markUnread: input.markUnread,
-          spokenSummary: input.spokenSummary,
         });
         await appendEventInTransaction(tx, {
           spaceId: input.spaceId,

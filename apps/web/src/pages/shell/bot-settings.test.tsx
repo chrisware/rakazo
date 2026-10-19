@@ -6,7 +6,6 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { rpc } from "../../lib/rpc";
 
 vi.mock("../../lib/rpc", () => ({
   rpc: {
@@ -92,7 +91,6 @@ const bot = {
   modelProvider: null,
   modelId: null,
   thinkingLevel: null,
-  speakMode: "full",
   teamChatAmbientEnabled: false,
   teamChatRules: "",
   disabledBuiltinTools: ["remember"],
@@ -110,7 +108,6 @@ async function flush() {
 }
 
 beforeEach(() => {
-  Object.assign(rpc.voice, { lastSummary: vi.fn(async () => ({ text: "" })) });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);

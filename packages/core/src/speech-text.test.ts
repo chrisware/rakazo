@@ -4,35 +4,8 @@ import {
   speakable,
   speechFromBlocks,
   spokenDecision,
-  spokenReplyText,
-  spokenSummary,
   toUtterances,
 } from "./speech-text.js";
-
-describe("spokenReplyText", () => {
-  it("reads the summary when asked and the full reply otherwise", () => {
-    const blocks = [{ kind: "text" as const, text: "The long reply stays on screen." }];
-    expect(spokenReplyText(blocks, "summary", "Done. Next is the review.")).toBe(
-      "Done. Next is the review.",
-    );
-    expect(spokenReplyText(blocks, "full", "Done. Next is the review.")).toBe(
-      "The long reply stays on screen.",
-    );
-  });
-});
-
-describe("spokenSummary", () => {
-  it("uses the model summary and drops a link from it", () => {
-    expect(spokenSummary("The long reply.", "Done. See https://example.com next.")).toBe(
-      "Done. See a link next.",
-    );
-  });
-
-  it("caps the reply when the model returns nothing usable", () => {
-    expect(spokenSummary("a".repeat(800), "   ")).toHaveLength(500);
-    expect(spokenSummary("The long reply.", "```json\n{}\n```")).toBe("The long reply.");
-  });
-});
 
 describe("speakable", () => {
   it("names a code block instead of reading it", () => {

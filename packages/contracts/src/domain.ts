@@ -103,7 +103,6 @@ export const BotSchema = z.object({
   modelProvider: z.string().nullable(),
   modelId: z.string().nullable(),
   thinkingLevel: ThinkingLevelSchema.nullable(),
-  speakMode: z.enum(["full", "summary"]).default("full"),
   teamChatAmbientEnabled: z.boolean(),
   teamChatRules: z.string(),
   disabledBuiltinTools: z.array(z.string()).default([]),
@@ -376,7 +375,6 @@ export const UpdateBotInput = z
     modelProvider: z.string().trim().min(1).max(80).nullable().optional(),
     modelId: z.string().trim().min(1).max(200).nullable().optional(),
     thinkingLevel: ThinkingLevelSchema.nullable().optional(),
-    speakMode: z.enum(["full", "summary"]).optional(),
     teamChatAmbientEnabled: z.boolean().optional(),
     teamChatRules: z.string().max(TEAM_CHAT_RULES_MAX_LENGTH).optional(),
     disabledBuiltinTools: DisabledBuiltinToolsSchema.optional(),
@@ -862,9 +860,7 @@ export const UsageRecordSchema = z.object({
   usageSource: z.string().nullable().optional(),
   callId: z.string().nullable().optional(),
   operationId: z.string().nullable().optional(),
-  operationKind: z
-    .enum(["answer", "setup", "retrieval", "subagent", "compaction", "summary"])
-    .optional(),
+  operationKind: z.enum(["answer", "setup", "retrieval", "subagent", "compaction"]).optional(),
   parentRunId: z.string().nullable().optional(),
   agentId: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -1273,14 +1269,6 @@ export const VoiceCredentialSchema = z.object({
   sttModel: z.string().default(""),
 });
 export type VoiceCredential = z.infer<typeof VoiceCredentialSchema>;
-
-export const SpeechSummaryConfigSchema = z.object({
-  configured: z.boolean(),
-  baseUrl: z.string(),
-  modelId: z.string(),
-  hasKey: z.boolean(),
-});
-export type SpeechSummaryConfig = z.infer<typeof SpeechSummaryConfigSchema>;
 
 export const VoiceStatusSchema = z.object({
   configured: z.boolean(),

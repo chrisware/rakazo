@@ -88,10 +88,6 @@ describe("mobile autoSpeak wiring", () => {
     const api = readFileSync(resolve(mobileRoot, "lib/api.ts"), "utf8");
     expect(api).toContain('"autoSpeak"');
     expect(settings).toContain('t("Read replies aloud")');
-    expect(settings).toContain('t("Full reply")');
-    expect(settings).toContain('t("Summary")');
-    expect(settings).toContain("speakMode");
-    expect(api).toContain('"speakMode"');
     expect(settings).toContain("autoSpeak");
     expect(thread).toContain("nextAutoSpeakAction");
     expect(thread).toContain("speakText(");

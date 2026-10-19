@@ -190,7 +190,7 @@ export function usageReportingFetch(
 }
 
 /** One exclusive bucket per whole model call, including any answer alongside retrieval.
- * Setup, compaction, subagent and summary attribution takes precedence. Only immediately consumed
+ * Setup, compaction and subagent attribution takes precedence. Only immediately consumed
  * trailing tool results count; an old search in retained history does not reclassify new work.
  */
 function usageOperationKind(

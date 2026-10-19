@@ -61,6 +61,7 @@ import {
   SLASH_ACTIONS,
   searchHitThreadTarget,
   serializeComposerPrompt,
+  speechFromBlocks,
   timeSeparatorIds,
   truncateSlashDescription,
   userVisibleMessages,
@@ -243,7 +244,6 @@ import {
   spaceSwitchDecision,
   useSpaceEpoch,
 } from "../lib/space-switch";
-import { spokenTextForRequest } from "../lib/speak-request";
 import {
   activeThreadRuns,
   applyThreadSendReceipt,
@@ -1384,16 +1384,10 @@ function SpaceShell() {
     }
     if (snapshot.run && ["running", "queued", "leased"].includes(snapshot.run.status)) return;
     if (!lastBot || lastBot.id === autoSpoken.current) return;
+    const text = speechFromBlocks(lastBot.blocks);
+    if (!text) return;
     autoSpoken.current = lastBot.id;
-    const messageId = lastBot.id;
-    const botId = active.id;
-    void rpc.voice
-      .spokenText({ botId, messageId, speakOnHost: true })
-      .then((spoken) => {
-        if (spoken.hostSpoken || !spoken.text || autoSpoken.current !== messageId) return;
-        void speaker.speak(spoken.text, { botId, messageId });
-      })
-      .catch(() => undefined);
+    void speaker.speak(text, { botId: active.id, messageId: lastBot.id });
   }, [
     snapshot?.messages,
     snapshot?.run?.status,
@@ -2548,25 +2542,14 @@ function SpaceShell() {
   }, []);
   const speakingMessageIdRef = useRef(speakingMessageId);
   speakingMessageIdRef.current = speakingMessageId;
-  const speakRequestRef = useRef(0);
   const speakMessage = useCallback((message: ThreadMessage) => {
     if (speakingMessageIdRef.current === message.id) {
-      speakRequestRef.current += 1;
       speaker.stop();
       return;
     }
+    const text = speechFromBlocks(message.blocks);
     const id = message.botId ?? activeBotId.current;
-    if (!id) return;
-    // The lookup is async. A slower reply for an earlier click must not start later.
-    const request = ++speakRequestRef.current;
-    speaker.stop();
-    void rpc.voice
-      .spokenText({ botId: id, messageId: message.id, speakOnHost: true })
-      .then((spoken) => {
-        const text = spokenTextForRequest(request, speakRequestRef.current, spoken);
-        if (text) void speaker.speak(text, { botId: id, messageId: message.id });
-      })
-      .catch(() => undefined);
+    if (text && id) void speaker.speak(text, { botId: id, messageId: message.id });
   }, []);
 
   async function createGroup(input: { name: string; botIds: string[] }) {
@@ -4241,16 +4224,6 @@ function SpaceShell() {
               <BotSettings
                 key={active.id}
                 bot={active}
-                latestBotMessageId={
-                  [...(activeSnapshot?.messages ?? [])]
-                    .reverse()
-                    .find((message) => message.role === "bot")?.id ?? null
-                }
-                summaryPending={
-                  activeSnapshot?.run?.status === "running" ||
-                  activeSnapshot?.run?.status === "queued" ||
-                  activeSnapshot?.run?.status === "leased"
-                }
                 memoryProviderConfigured={memoryProviderConfig != null}
                 onSkillsChange={setAgentSkills}
                 onSave={async ({ computerMode, ...patch }) => {

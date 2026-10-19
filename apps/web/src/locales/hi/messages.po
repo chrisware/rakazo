@@ -1734,10 +1734,6 @@ msgstr "वह आवाज़ सहेजी नहीं जा सकी"
 msgid "Could not save the credential"
 msgstr ""
 
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Could not save the summary model"
-msgstr "सार मॉडल सहेजा नहीं जा सका"
-
 #: src/pages/shell/message-cards.tsx
 msgid "Could not save this choice"
 msgstr "यह विकल्प सहेजा नहीं जा सका"
@@ -2417,10 +2413,6 @@ msgstr ""
 msgid "From {0}"
 msgstr ""
 
-#: src/pages/shell/bot-panel.tsx
-msgid "Full reply"
-msgstr "पूरा उत्तर"
-
 #: src/pages/WindowChrome.tsx
 msgid "Fullscreen"
 msgstr "फ़ुलस्क्रीन"
@@ -2678,9 +2670,6 @@ msgstr "ज्ञान"
 msgid "Language"
 msgstr "भाषा"
 
-#: src/pages/shell/bot-panel.tsx
-msgid "Last summary"
-msgstr "पिछला सार"
 #. placeholder {0}: new Date(state.checkedAt).toLocaleString()
 #: src/pages/RoutineEditor.tsx
 msgid "Last check {0}: changed"
@@ -3261,10 +3250,6 @@ msgstr ""
 msgid "No skills yet"
 msgstr "अभी तक कोई स्किल नहीं"
 
-#: src/pages/shell/bot-panel.tsx
-msgid "No summary yet."
-msgstr "अभी कोई सार नहीं।"
-
 #: src/pages/MessagingSettingsOverlay.tsx
 msgid "No team conversations yet."
 msgstr ""
@@ -3429,10 +3414,6 @@ msgstr "आपका वर्कस्पेस खुल रहा है…"
 #: src/pages/VoiceSettingsOverlay.tsx
 msgid "Optional"
 msgstr "वैकल्पिक"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Optional for a local server"
-msgstr "स्थानीय सर्वर के लिए वैकल्पिक"
 
 #: src/pages/McpServersOverlay.tsx
 msgid "Optional header value"
@@ -3620,10 +3601,6 @@ msgstr "प्रतिक्रिया दें"
 #: src/pages/Shell.tsx
 msgid "Reactions"
 msgstr "प्रतिक्रियाएँ"
-
-#: src/pages/shell/bot-panel.tsx
-msgid "Read"
-msgstr "पढ़ें"
 
 #: src/pages/shell/bot-panel.tsx
 msgid "Read replies aloud"
@@ -4032,10 +4009,6 @@ msgstr ""
 msgid "Save new value"
 msgstr ""
 
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Save summary model"
-msgstr "सार मॉडल सहेजें"
-
 #: src/components/ComputerMaintenanceActions.tsx
 msgid "Save the workspace and install current software."
 msgstr "कार्यक्षेत्र सहेजें और नवीनतम सॉफ़्टवेयर इंस्टॉल करें।"
@@ -4053,10 +4026,6 @@ msgstr "सहेजा गया, लेकिन सूची रिफ़्�
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Saved."
 msgstr "सहेजा गया।"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Saved. Paste to replace."
-msgstr "सहेजा गया। बदलने के लिए चिपकाएँ।"
 
 #: src/pages/RoutineEditor.tsx
 msgid "Saved. Rotate to reveal."
@@ -4391,10 +4360,6 @@ msgid "Speak this reply"
 msgstr "यह उत्तर बोलकर सुनाएं"
 
 #: src/pages/VoiceSettingsOverlay.tsx
-msgid "Speech"
-msgstr "वाणी"
-
-#: src/pages/VoiceSettingsOverlay.tsx
 msgid "Speech model"
 msgstr "वाक् मॉडल"
 
@@ -4471,26 +4436,6 @@ msgstr ""
 #: src/pages/Paywall.tsx
 msgid "Subscription required"
 msgstr ""
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Summarise"
-msgstr "सार बनाएँ"
-
-#: src/pages/shell/bot-panel.tsx
-msgid "Summary"
-msgstr "सार"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Summary model"
-msgstr "सार मॉडल"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Summary model cleared."
-msgstr "सार मॉडल हटाया गया।"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Summary model saved."
-msgstr "सार मॉडल सहेजा गया।"
 
 #: src/pages/ModelSettingsOverlay.tsx
 #: src/pages/Onboarding.tsx
@@ -4937,10 +4882,6 @@ msgstr "यह मॉडल उपयोग करें"
 #: src/pages/ModelSettingsOverlay.tsx
 msgid "Use your own key"
 msgstr "अपनी कुंजी इस्तेमाल करें"
-
-#: src/pages/VoiceSettingsOverlay.tsx
-msgid "Used by every voice when a bot reads a summary. Leave blank to use the bot's own model."
-msgstr "जब कोई बॉट सार पढ़ता है तो हर आवाज़ इसका उपयोग करती है। बॉट का अपना मॉडल रखने के लिए खाली छोड़ें।"
 
 #: src/components/AskCard.tsx
 #: src/pages/shell/bot-credentials.tsx

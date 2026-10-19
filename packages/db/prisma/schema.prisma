@@ -263,7 +263,6 @@ model SpaceMember {
   createdAt        DateTime
   modelPreferences SpaceModelPreference[]
   voicePreferences SpaceVoicePreference[]
-  speechSummary    SpeechSummaryConfig?
   aiDataConsents AiDataConsent[]
   backupModels SpaceBackupModel[]
 
@@ -371,21 +370,6 @@ model SpaceBackupModel {
   @@map("space_backup_models")
 }
 
-/// Optional OpenAI-compatible model used to summarize a reply before any voice speaks it.
-model SpeechSummaryConfig {
-  spaceId     String
-  userId      String
-  spaceMember SpaceMember @relation(fields: [spaceId, userId], references: [spaceId, userId], onDelete: Cascade)
-  baseUrl     String
-  modelId     String
-  secretId    String?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-
-  @@id([spaceId, userId])
-  @@map("speech_summary_configs")
-}
-
 model SpaceVoicePreference {
   id           String              @id @default(cuid())
   spaceId      String
@@ -443,8 +427,6 @@ model Bot {
   modelProvider     String?
   modelId           String?
   thinkingLevel     String?
-  /// full reads the reply; summary speaks a short spoken line.
-  speakMode         String            @default("full")
   disabledBuiltinTools String[] @default([])
   webhookSecretId   String?
   teamChatAmbientEnabled Boolean @default(false)
@@ -585,7 +567,6 @@ model Message {
   clientNonce      String?
   sourceRuns            Run[]             @relation("RunSourceMessage")
   externalTranscriptFor  ExternalMessage?
-  spokenSummary    String?
   steeringMessages SteeringMessage[]
   createdAt        DateTime  @default(now())
 

@@ -14,14 +14,6 @@ const voice = vi.hoisted(() => ({
   disconnect: vi.fn(),
   setVoice: vi.fn(),
   setSpeechModel: vi.fn(),
-  summaryConfig: vi.fn(async () => ({
-    configured: false,
-    baseUrl: "",
-    modelId: "",
-    hasKey: false,
-  })),
-  setSummaryConfig: vi.fn(),
-  clearSummaryConfig: vi.fn(),
 }));
 
 vi.mock("../lib/rpc", () => ({ rpc: { voice } }));
@@ -312,59 +304,3 @@ it.each([
     }
   },
 );
-
-it("does not clear a summary model when its settings fail to load", async () => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  voice.summaryConfig.mockRejectedValue(new Error("unavailable"));
-  voice.catalog.mockResolvedValue([
-    { id: "fish-audio", name: "Fish Audio", description: "", transcribe: true },
-  ]);
-  voice.credentials.mockResolvedValue([]);
-  voice.status.mockResolvedValue({
-    configured: false,
-    ready: false,
-    transcribe: false,
-    provider: null,
-    voiceId: "",
-  });
-  voice.clearSummaryConfig.mockResolvedValue({ ok: true });
-
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  const button = (text: string) => {
-    const found = [...container.querySelectorAll("button")].find((entry) =>
-      entry.textContent?.includes(text),
-    );
-    if (!found) throw new Error(`Missing button: ${text}`);
-    return found;
-  };
-  try {
-    await act(async () => {
-      root.render(<VoiceSettingsOverlay embedded onClose={() => undefined} />);
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    await act(async () => {
-      button("Summarise").click();
-    });
-
-    const save = button("Save summary model");
-    expect(save.hasAttribute("disabled")).toBe(true);
-    await act(async () => {
-      save.click();
-    });
-    expect(voice.clearSummaryConfig).not.toHaveBeenCalled();
-  } finally {
-    voice.summaryConfig.mockResolvedValue({
-      configured: false,
-      baseUrl: "",
-      modelId: "",
-      hasKey: false,
-    });
-    await act(async () => root.unmount());
-    container.remove();
-    vi.unstubAllGlobals();
-  }
-});

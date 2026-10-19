@@ -200,8 +200,6 @@ export function CreateBotForm({
 
 export function BotSettings({
   bot,
-  latestBotMessageId = null,
-  summaryPending = false,
   memoryProviderConfigured,
   onSkillsChange,
   onSave,
@@ -209,10 +207,6 @@ export function BotSettings({
   onClear,
 }: {
   bot: Bot;
-  /** Changes when a new bot reply arrives, so the open panel can refresh. */
-  latestBotMessageId?: string | null;
-  /** The reply is visible before its spoken summary is saved. */
-  summaryPending?: boolean;
   onSkillsChange: (skills: AgentSkillCatalogEntry[]) => void;
   memoryProviderConfigured: boolean;
   onSave: (patch: {
@@ -229,7 +223,6 @@ export function BotSettings({
     modelProvider?: string | null;
     modelId?: string | null;
     thinkingLevel?: ThinkingLevel | null;
-    speakMode?: "full" | "summary";
     disabledBuiltinTools?: string[];
   }) => Promise<void>;
   onExport: () => Promise<void>;
@@ -251,8 +244,6 @@ export function BotSettings({
   const [computerMode, setComputerMode] = useState(bot.computerMode);
   const [memoryScope, setMemoryScope] = useState(bot.memoryScope);
   const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
-  const [speakMode, setSpeakMode] = useState<"full" | "summary">(bot.speakMode ?? "full");
-  const [lastSummary, setLastSummary] = useState("");
   const [voiceId, setVoiceId] = useState(bot.voiceId ?? "");
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [modelKey, setModelKey] = useState(
@@ -309,21 +300,6 @@ export function BotSettings({
       })
       .catch(() => undefined);
   }, []);
-  useEffect(() => {
-    if (summaryPending) return;
-    let current = true;
-    void rpc.voice
-      .lastSummary({ botId: bot.id })
-      .then((result) => {
-        if (current) setLastSummary(result.text);
-      })
-      .catch(() => {
-        if (current) setLastSummary("");
-      });
-    return () => {
-      current = false;
-    };
-  }, [bot.id, latestBotMessageId, summaryPending]);
 
   const connectedOptions = connectedModelChoices(credentials, catalog);
   const storedModel = modelKey ? parseModelOptionKey(modelKey) : null;
@@ -394,7 +370,6 @@ export function BotSettings({
         computerMode,
         memoryScope,
         autoSpeak,
-        speakMode,
         voiceId: voiceId || null,
         modelProvider: selected?.provider ?? null,
         modelId: selected?.modelId ?? null,
@@ -698,32 +673,6 @@ export function BotSettings({
             </NativeSelect>
           </label>
         ) : null}
-        {autoSpeak ? (
-          <label htmlFor={`${ids}-speak-mode`} className={fieldLabelClass}>
-            <Trans>Read</Trans>
-            <NativeSelect
-              id={`${ids}-speak-mode`}
-              className="mt-2 w-full"
-              value={speakMode}
-              onChange={(event) =>
-                setSpeakMode(event.target.value === "summary" ? "summary" : "full")
-              }
-            >
-              <NativeSelectOption value="full">{t`Full reply`}</NativeSelectOption>
-              <NativeSelectOption value="summary">{t`Summary`}</NativeSelectOption>
-            </NativeSelect>
-          </label>
-        ) : null}
-        <label htmlFor={`${ids}-last-summary`} className={fieldLabelClass}>
-          <Trans>Last summary</Trans>
-          <Textarea
-            id={`${ids}-last-summary`}
-            className="mt-2 min-h-16 text-[13px]"
-            readOnly
-            value={lastSummary}
-            placeholder={t`No summary yet.`}
-          />
-        </label>
         <label htmlFor={`${ids}-disabled-tools`} className={fieldLabelClass}>
           <Trans>Disabled tools</Trans>
           <Input

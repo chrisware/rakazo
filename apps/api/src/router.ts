@@ -81,7 +81,6 @@ import {
   mapScratchpadItem,
   modelCredentialAuthKindsForSpace,
   modelCredentialDto,
-  normalizeOpenAiCompatibleBaseUrl,
   normalizeSecretDestination,
   PushSessionEndedError,
   parseModelSecret,
@@ -139,7 +138,6 @@ import type {
   ExportManifest,
   McpServer,
   Me,
-  MessageBlock,
   ProductEvent,
   Routine,
   SpaceNavigation,
@@ -169,8 +167,6 @@ import {
   hasMixedOneShotSchedule,
   isOneShotRoutineCrons,
   nextCronDateAcrossStrict,
-  speechFromBlocks,
-  spokenSummary,
 } from "@rakazo/core";
 import type { BoardEvents, Board as BoardRow, PrismaClient, ThreadEvents } from "@rakazo/db";
 import {
@@ -281,12 +277,6 @@ import {
   readServerUpdateStatus,
   UpdaterProxyError,
 } from "./server-update.js";
-import {
-  loadSpeakableMessage,
-  registerHostSpeaker,
-  resolveSpokenText,
-  speakOnHost,
-} from "./spoken-text.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
 import {
   isBackgroundRun,
@@ -309,14 +299,13 @@ import {
   disconnectVoiceCredential,
   listVoiceCatalog,
   loadDefaultVoiceCredential,
-  loadSpeechSummaryConfig,
   loadVoiceCredential,
   persistVoiceCredential,
   prepareVoice,
-  saveSpeechSummaryConfig,
   toVoiceCredential,
   toVoiceStatus,
   updateVoiceSpeechModel,
+  type VoiceDeps,
   voiceContext,
   voiceCredentialServer,
 } from "./voice.js";
@@ -605,6 +594,7 @@ export interface RouterDeps {
   messaging?: { enabled: boolean; providers: string[]; openSignup: boolean };
   /** Present only when the deployment bills; self-hosted installs leave it unset. */
   billing?: BillingService;
+  speechSummary?: VoiceDeps["speechSummary"];
   env: {
     ticketBoardEnabled?: boolean;
     maxUploadSizeBytes?: number;
@@ -1371,9 +1361,6 @@ export function createRouter(deps: RouterDeps) {
             }
           }
           try {
-            const apiKey =
-              input.apiKey?.trim() ||
-              (await savedOpenAiCompatibleKey(deps, context.actor, input.baseUrl));
             const models = await probeOpenAiCompatibleModels(
               { ...input, apiKey },
               undefined,
@@ -1864,7 +1851,6 @@ export function createRouter(deps: RouterDeps) {
               ? { modelProvider: input.modelProvider, modelId: input.modelId ?? null }
               : {}),
             ...(input.thinkingLevel !== undefined ? { thinkingLevel } : {}),
-            ...(input.speakMode !== undefined ? { speakMode: input.speakMode } : {}),
             ...(input.teamChatAmbientEnabled !== undefined
               ? { teamChatAmbientEnabled: input.teamChatAmbientEnabled }
               : {}),
@@ -6256,49 +6242,6 @@ export function createRouter(deps: RouterDeps) {
     },
     voice: {
       catalog: authed.voice.catalog.handler(async () => listVoiceCatalog()),
-      lastSummary: authed.voice.lastSummary.handler(async ({ context, input }) => {
-        const bot = await deps.prisma.bot.findFirst({
-          where: { id: input.botId, spaceId: context.actor.spaceId, userId: context.actor.userId },
-          select: { thread: { select: { id: true } } },
-        });
-        if (!bot?.thread) throw new IsolationError();
-        const message = await deps.prisma.message.findFirst({
-          where: { threadId: bot.thread.id, role: "bot", spokenSummary: { not: null } },
-          orderBy: { seq: "desc" },
-          select: { spokenSummary: true, blocks: true },
-        });
-        if (!message) return { text: "" };
-        const blocks = Array.isArray(message.blocks) ? (message.blocks as MessageBlock[]) : [];
-        return { text: spokenSummary(speechFromBlocks(blocks), message.spokenSummary) };
-      }),
-      summaryConfig: authed.voice.summaryConfig.handler(async ({ context }) =>
-        loadSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor),
-      ),
-      setSummaryConfig: authed.voice.setSummaryConfig.handler(async ({ context, input }) =>
-        saveSpeechSummaryConfig({ prisma: deps.prisma, secrets: deps.secrets }, context.actor, {
-          ...input,
-          signal: context.signal,
-        }),
-      ),
-      clearSummaryConfig: authed.voice.clearSummaryConfig.handler(async ({ context }) => {
-        const existing = await deps.prisma.speechSummaryConfig.findUnique({
-          where: {
-            spaceId_userId: { spaceId: context.actor.spaceId, userId: context.actor.userId },
-          },
-          select: { secretId: true },
-        });
-        await deps.prisma.$transaction(async (tx) => {
-          await tx.speechSummaryConfig.deleteMany({
-            where: { spaceId: context.actor.spaceId, userId: context.actor.userId },
-          });
-          if (existing?.secretId) {
-            await tx.secret.deleteMany({
-              where: { id: existing.secretId, userId: context.actor.userId },
-            });
-          }
-        });
-        return { ok: true as const };
-      }),
       status: authed.voice.status.handler(async ({ context }) => {
         const cred = await findDefaultVoiceCredential(deps.prisma, context.actor);
         return toVoiceStatus(cred);
@@ -6391,25 +6334,8 @@ export function createRouter(deps: RouterDeps) {
         );
       }),
       prepare: authed.voice.prepare.handler(async ({ context, input }) =>
-        prepareVoice(deps, context.actor, input),
+        prepareVoice(deps, context.actor, { ...input, signal: context.signal }),
       ),
-      spokenText: authed.voice.spokenText.handler(async ({ context, input }) => {
-        const message = await loadSpeakableMessage(deps.prisma, context.actor, input);
-        const text = await resolveSpokenText({
-          prisma: deps.prisma,
-          botId: input.botId,
-          threadId: message.threadId,
-          messageId: input.messageId,
-          blocks: message.blocks,
-        });
-        const hostSpoken = await speakOnHost(deps, {
-          prisma: deps.prisma,
-          botId: input.botId,
-          text,
-          speakOnHost: input.speakOnHost === true,
-        });
-        return { text: hostSpoken ? "" : text, hostSpoken };
-      }),
     },
   });
 }
@@ -6600,36 +6526,6 @@ async function loadAutoReviewSettings(deps: RouterDeps, actor: Actor) {
   const enabled = preference?.enabled ?? deploymentAutoReviewDefault(process.env);
   const checkerAvailable = environmentAvailable || Boolean(credential);
   return { enabled, checkerAvailable };
-}
-
-// Imported so this branch shares the spoken-text module. Nothing registers host playback here.
-void registerHostSpeaker;
-
-async function savedOpenAiCompatibleKey(
-  deps: RouterDeps,
-  actor: Actor,
-  baseUrl: string,
-): Promise<string | undefined> {
-  const wanted = normalizeOpenAiCompatibleBaseUrl(baseUrl);
-  const rows = await deps.prisma.userModelCredential.findMany({
-    where: { userId: actor.userId, provider: OPENAI_COMPATIBLE_PROVIDER_ID },
-    select: { secretId: true },
-  });
-  for (const row of rows) {
-    const secret = await deps.prisma.secret.findFirst({
-      where: { id: row.secretId, userId: actor.userId },
-    });
-    if (!secret) continue;
-    try {
-      const parsed = parseModelSecret(await deps.secrets.load(secret.ciphertext, secret.id));
-      if (parsed.kind === "openai_compatible" && parsed.baseUrl.replace(/\/$/, "") === wanted) {
-        return parsed.apiKey;
-      }
-    } catch {
-      // A corrupt saved connection cannot block listing models with a typed key.
-    }
-  }
-  return undefined;
 }
 
 function hostCredentials(active: boolean, provider: string) {

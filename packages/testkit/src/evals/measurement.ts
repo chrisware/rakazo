@@ -35,7 +35,6 @@ export const OPERATION_KINDS = [
   "retrieval",
   "subagent",
   "compaction",
-  "summary",
 ] as const satisfies readonly Operation[];
 export type MeasuredCall = Partial<UsageMeasurement> & {
   operation?: string;

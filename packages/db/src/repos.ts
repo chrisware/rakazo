@@ -71,7 +71,6 @@ function mapBot(
     modelProvider?: string | null;
     modelId?: string | null;
     thinkingLevel?: string | null;
-    speakMode?: string;
     teamChatAmbientEnabled?: boolean;
     teamChatRules?: string;
     disabledBuiltinTools?: string[];
@@ -115,7 +114,6 @@ function mapBot(
     modelProvider: bot.modelProvider ? canonicalPiProviderId(bot.modelProvider) : null,
     modelId: bot.modelId ?? null,
     thinkingLevel: (bot.thinkingLevel as Bot["thinkingLevel"]) ?? null,
-    speakMode: bot.speakMode === "summary" ? "summary" : "full",
     teamChatAmbientEnabled: bot.teamChatAmbientEnabled ?? false,
     teamChatRules: bot.teamChatRules ?? "",
     disabledBuiltinTools: bot.disabledBuiltinTools ?? [],
