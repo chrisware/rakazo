@@ -1,6 +1,7 @@
+import type { SettingsScope } from "@rakazo/contracts";
 import { readBoundedResponseBytes } from "@rakazo/core";
 import { rpc, selectedSpaceId, withSpaceHeaders } from "./rpc.js";
-import { errorText } from "./user-error.js";
+import { errorText, voiceAccountErrorText } from "./user-error.js";
 
 export type SpeechStatus = "idle" | "preparing" | "speaking";
 
@@ -13,12 +14,15 @@ export interface SpeechSnapshot {
 }
 
 interface SpeakOptions {
+  spaceId?: string | null;
+  /** Which copy of the voice settings to use; omitted means whichever applies in the space. */
+  scope?: SettingsScope;
   voiceId?: string;
   botId?: string;
   messageId?: string;
 }
 
-type TtsErrorBody = { error?: string };
+type TtsErrorBody = { error?: string; code?: string };
 
 const IDLE: SpeechSnapshot = { status: "idle" };
 export const VOICE_RESPONSE_TIMEOUT_MS = 70_000;
@@ -77,13 +81,14 @@ export class Speaker {
     }
   }
 
-  async speak(text: string, opts: SpeakOptions = {}): Promise<void> {
+  /** Resolves with this request's failure text; stopping or superseding it resolves with none. */
+  async speak(text: string, opts: SpeakOptions = {}): Promise<string | undefined> {
     this.stop();
     const mine = this.token;
     const controller = new AbortController();
     this.request = controller;
     const live = () => this.token === mine && !controller.signal.aborted;
-    const spaceId = selectedSpaceId();
+    const spaceId = opts.spaceId ?? selectedSpaceId();
 
     this.set({ status: "preparing", botId: opts.botId, messageId: opts.messageId });
     let utterances: string[];
@@ -92,11 +97,10 @@ export class Speaker {
         this.prepare(text, opts, controller.signal, spaceId),
       );
     } catch (error) {
-      if (live()) {
-        this.set({ ...IDLE, error: errorText(error) });
-      }
+      const failure = live() ? errorText(error) : undefined;
+      if (failure) this.set({ ...IDLE, error: failure });
       if (this.request === controller) this.request = null;
-      return;
+      return failure;
     }
     if (!live()) return;
     if (!utterances.length) {
@@ -118,14 +122,10 @@ export class Speaker {
       if (!current) break;
       const rendered = await current;
       if ("error" in rendered) {
-        if (live()) {
-          this.set({
-            ...IDLE,
-            error: errorText(rendered.error),
-          });
-        }
+        const failure = live() ? errorText(rendered.error) : undefined;
+        if (failure) this.set({ ...IDLE, error: failure });
         if (this.request === controller) this.request = null;
-        return;
+        return failure;
       }
       if (!live()) return;
       this.set({
@@ -152,7 +152,7 @@ export class Speaker {
     spaceId: string | null,
   ): Promise<string[]> {
     const body = await rpc.voice.prepare(
-      { text, voiceId: opts.voiceId, botId: opts.botId },
+      { text, voiceId: opts.voiceId, botId: opts.botId, scope: opts.scope },
       { signal, context: { spaceId } },
     );
     if (!body.ready) {
@@ -174,13 +174,18 @@ export class Speaker {
           method: "POST",
           headers: withSpaceHeaders({ "content-type": "application/json" }, spaceId),
           credentials: "include",
-          body: JSON.stringify({ text, voiceId: opts.voiceId, botId: opts.botId }),
+          body: JSON.stringify({
+            text,
+            voiceId: opts.voiceId,
+            botId: opts.botId,
+            scope: opts.scope,
+          }),
           signal: deadline.signal,
         }),
       );
       if (!res.ok) {
         const body = await readVoiceError(res, deadline.signal);
-        throw new Error(body.error ?? "");
+        throw new Error(voiceAccountErrorText(body) ?? body.error ?? "");
       }
       const bytes = await readResponseBytes(res, MAX_VOICE_AUDIO_BYTES, deadline.signal);
       return new Blob([new Uint8Array(bytes)], {

@@ -276,6 +276,26 @@ export function expandSkillReferencesInPrompt(
   return [...blocks, rest].filter(Boolean).join("\n\n");
 }
 
+/**
+ * Points `@old` skill mentions in a routine prompt at their new names, in one pass. Names
+ * mapped to themselves are still matched, so a longer name wins over a renamed prefix.
+ */
+export function renameRoutineSkillMentions(
+  prompt: string,
+  renames: ReadonlyMap<string, string>,
+): string {
+  const names = [...renames.keys()].sort((a, b) => b.length - a.length);
+  if (names.length === 0) return prompt;
+  const next = new Map([...renames].map(([from, to]) => [from.toLowerCase(), to]));
+  return prompt.replace(
+    new RegExp(`(^|[\\s(,])@(${names.map(escapeRegExp).join("|")})(?=[\\s,.)]|$)`, "gi"),
+    (match, lead: string, name: string) => {
+      const to = next.get(name.toLowerCase());
+      return to ? `${lead}@${to}` : match;
+    },
+  );
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -458,11 +478,19 @@ function parseSimpleYamlObject(text: string): Record<string, unknown> {
 
 function parseYamlScalar(raw: string): string | number | boolean {
   const value = raw.trim();
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    // Saves write double-quoted values with JSON.stringify. Decode them so the next save
+    // does not add another escape layer. Non-JSON escapes such as "C:\path" keep the slice.
+    try {
+      const decoded: unknown = JSON.parse(value);
+      if (typeof decoded === "string") return decoded;
+    } catch {
+      // Fall through to the slice below.
+    }
     return value.slice(1, -1);
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replaceAll("''", "'");
   }
   if (value === "true") return true;
   if (value === "false") return false;
@@ -486,7 +514,7 @@ function formatYamlBlockScalar(key: string, value: string): string {
     indicator = "|+";
     const core = value.slice(0, -trailing);
     // keep decoder yields 1 + trailingBlanks newlines; emit trailingBlanks blank lines.
-    lines = [core, ...Array.from({ length: trailing - 1 }, () => "")];
+    lines = [...core.split("\n"), ...Array.from({ length: trailing - 1 }, () => "")];
   }
   const indented = lines.map((line) => `  ${line}`).join("\n");
   return `${key}: ${indicator}\n${indented}`;
@@ -498,7 +526,14 @@ function formatYamlLine(key: string, value: unknown): string {
     if (value.includes("\n") || value.includes(": ")) {
       return formatYamlBlockScalar(key, value);
     }
-    if (value === "" || /[#{}[\],&*?|>!%@`]/.test(value) || value !== value.trim()) {
+    if (
+      value === "" ||
+      /[#{}[\],&*?|>!%@`]/.test(value) ||
+      value !== value.trim() ||
+      value.startsWith('"') ||
+      value.startsWith("'") ||
+      typeof parseYamlScalar(value) !== "string"
+    ) {
       return `${key}: ${JSON.stringify(value)}`;
     }
     return `${key}: ${value}`;

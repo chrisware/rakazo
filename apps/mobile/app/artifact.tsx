@@ -32,6 +32,7 @@ import { t, useI18n } from "../lib/i18n";
 import { presentMessageActionSheet } from "../lib/message-action-sheet";
 import { native, useResolvedAppearance, useThemedStyles } from "../lib/native";
 import { iosAtLeast } from "../lib/native-controls";
+import { useSideInsets } from "../lib/side-insets";
 import { errorText } from "../lib/user-error";
 
 type PreviewContent =
@@ -154,11 +155,12 @@ export default function ArtifactDetailScreen() {
     if (!versions || versions.length < 2) return;
     presentMessageActionSheet({
       title: t("Versions"),
+      selected: versions.findIndex((version) => version.id === selectedVersionId),
       cancel: t("Cancel"),
       more: t("More"),
       colorScheme,
       actions: versions.map((version) => ({
-        text: `v${version.version} · ${formatActivityRelativeTime(version.createdAt)}`,
+        text: `v${version.version} (${formatActivityRelativeTime(version.createdAt)})`,
         onPress: () => setSelectedVersionId(version.id),
       })),
     });
@@ -175,7 +177,7 @@ export default function ArtifactDetailScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: content.status === "ready" ? content.artifact.name : t("Loading…"),
+      title: content.status === "ready" ? content.artifact.name : "",
       headerRight: () =>
         content.status === "ready" ? (
           <View style={styles.headerActions}>
@@ -233,7 +235,7 @@ export default function ArtifactDetailScreen() {
       <View style={styles.pillRow}>
         <Pressable accessibilityRole="button" onPress={pickVersion} style={styles.pill}>
           <Text style={styles.pillText}>
-            {`v${content.artifact.version} · ${formatActivityRelativeTime(content.artifact.createdAt)}`}
+            {`v${content.artifact.version} (${formatActivityRelativeTime(content.artifact.createdAt)})`}
           </Text>
           <NativeSymbol
             ios="chevron.down"
@@ -281,6 +283,7 @@ function ArtifactPreview({
   imageLabel: string;
   onOpenImage: (() => void) | null;
 }) {
+  const sideInsets = useSideInsets();
   const styles = useThemedStyles(createStyles);
   const tokens = mobileTokens();
   const colorScheme = useResolvedAppearance();
@@ -294,6 +297,7 @@ function ArtifactPreview({
   if (preview.kind === "markdown") {
     return (
       <ScrollView
+        style={sideInsets}
         contentContainerStyle={styles.markdownScroll}
         contentInsetAdjustmentBehavior="automatic"
       >

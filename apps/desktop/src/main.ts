@@ -3,18 +3,8 @@ import { existsSync } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { DesktopReachability, DesktopSetup } from "@rakazo/contracts";
-import { LOCAL_SETTINGS_PAGE } from "@rakazo/contracts/local-settings";
-import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  Menu,
-  net,
-  type Session,
-  session,
-  shell,
-} from "electron";
+import type { Session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, session, shell } from "electron";
 import type { AppDocumentState } from "./app-document-state.js";
 import { APP_DOCUMENT_STATE_SCRIPT } from "./app-document-state.js";
 import { createAppOpener } from "./app-opener.js";
@@ -22,10 +12,13 @@ import {
   DesktopUpdateController,
   type ElectronAutoUpdater,
   LAUNCH_CHECK_DELAY_MS,
+  updaterSupport,
 } from "./auto-update.js";
+import { createBadgeHandler } from "./badge.js";
 import { openBrowserAuth } from "./browser-auth.js";
 import { DOCKER_INSTALL_LINKS, isDesktopSetupLink, runDocker } from "./docker-cli.js";
-import { requestLocalSettings } from "./local-settings.js";
+import { prepareHostComputer } from "./host-computer.js";
+import { saveLocalComputerHost } from "./local-settings.js";
 import {
   LocalStackController,
   readStackToken,
@@ -34,14 +27,22 @@ import {
   stackDir,
   stackResourceDir,
 } from "./local-stack.js";
+import {
+  configureDesktopMonitoring,
+  disableDesktopMonitoring,
+  installDesktopEarlyErrorReporting,
+  refreshDesktopMonitoringUser,
+  reportDesktopError,
+} from "./monitoring.js";
 import { oauthCallbackFrom } from "./oauth-callback.js";
+import { associatedPasskeyRpIds } from "./passkeys.js";
 import {
   bundledRendererCandidates,
-  contentType,
+  bundledRendererHeaders,
   forwardedRendererRequestInit,
-  immutableRendererAsset,
   isRendererAssetMiss,
 } from "./renderer-assets.js";
+import { revealSecondInstanceWindow, secondInstanceWindow } from "./second-instance.js";
 import { installSessionPermissions } from "./session-permissions.js";
 import {
   DEFAULT_LOCAL_WEB_URL,
@@ -52,6 +53,7 @@ import {
   normalizeServerUrl,
   parseSetupInput,
   probeFailureMessage,
+  RAKAZO_CLOUD_URL,
   readProbeJson,
   resolveStartupTarget,
   safeExternalUrl,
@@ -67,6 +69,9 @@ import {
   warmWindowTtlMs,
 } from "./window-options.js";
 
+process.setSourceMapsEnabled(true);
+installDesktopEarlyErrorReporting();
+
 const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
 /** Test hook: where the app-managed stack answers. Mode `new` still requires loopback. */
 const LOCAL_WEB_URL = process.env.RAKAZO_LOCAL_WEB_URL?.trim() || DEFAULT_LOCAL_WEB_URL;
@@ -77,13 +82,12 @@ const DESKTOP_STACK_TOKEN_HEADER = "x-rakazo-desktop-stack-token";
 let mainWindow: BrowserWindow | null = null;
 const appWindowTargets = new WeakMap<BrowserWindow, string>();
 let setupWindow: BrowserWindow | null = null;
-let settingsWindow: BrowserWindow | null = null;
-let openingSettings = false;
-let settingsCleanup: Promise<void> = Promise.resolve();
-let settingsTarget: { origin: string; token: string } | null = null;
 const bundledRendererInstallations = new Set<string>();
 let currentSetup: DesktopSetup | null = null;
 let currentTargetUrl: string | null = null;
+let monitoringSession: Session | undefined;
+let monitoringTargetUrl: string | undefined;
+let stopMonitoringSession: (() => void) | undefined;
 let setupError: string | null = null;
 let setupSaveInProgress = false;
 const appOpener = createAppOpener(openAppOnce);
@@ -115,6 +119,8 @@ const desktopUpdater = new DesktopUpdateController(
 );
 let launchUpdateCheckScheduled = false;
 let localStack: LocalStackController;
+let hostComputer: Awaited<ReturnType<typeof prepareHostComputer>> | undefined;
+let requestingComputerAccess = false;
 
 markOnce("rk:main:module-evaluated");
 if (PERFORMANCE_USER_DATA) {
@@ -125,6 +131,15 @@ app.once("will-finish-launching", () => markOnce("rk:main:will-finish-launching"
 app.once("ready", () => markOnce("rk:main:ready"));
 // Includes fresh partitions and popup-created sessions, before they load remote content.
 app.on("session-created", (value) => installSessionPermissions(value, permissionTarget));
+
+const passkeyRpIds = associatedPasskeyRpIds({
+  platform: process.platform,
+  packaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  exists: existsSync,
+});
+// Routes WebAuthn to the system passkey sheet (iCloud Keychain and other providers).
+if (passkeyRpIds.length > 0) app.configureWebAuthn({ platformPasskeys: true });
 
 function permissionTarget() {
   if (mainWindow === null || mainWindow.isDestroyed()) return null;
@@ -264,6 +279,9 @@ function createWindow(url: string, partition: string | null) {
       ...(partition === null ? {} : { partition }),
     },
   });
+  win.on("unresponsive", () =>
+    reportDesktopError(new Error("Renderer unresponsive"), "desktop.unresponsive"),
+  );
   mainWindow = win;
   appWindowTargets.set(win, url);
   const targetOrigin = safeOrigin(url);
@@ -491,7 +509,7 @@ async function installBundledRenderer(
       return targetSession.fetch(request, forwardedRendererRequestInit(request, webUrl.origin));
     };
     // Mode can change on the same origin/session; only managed "new" keeps the overlay.
-    if (partition !== "local-server-settings" && currentSetup?.mode !== "new") {
+    if (currentSetup?.mode !== "new") {
       return forward();
     }
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -512,14 +530,7 @@ async function installBundledRenderer(
         if (isRendererAssetMiss(error)) continue;
         throw error;
       }
-      const headers = new Headers({
-        "cache-control": immutableRendererAsset(file)
-          ? "public, max-age=31536000, immutable"
-          : "no-cache",
-        "content-type": contentType(file),
-        "x-content-type-options": "nosniff",
-      });
-      return new Response(body, { headers });
+      return new Response(body, { headers: bundledRendererHeaders(file, request.url) });
     }
     return forward();
   });
@@ -534,7 +545,7 @@ function oauthPopupWindowOptions(partition: string | null) {
     frame: true,
     titleBarStyle: "default" as const,
     autoHideMenuBar: true,
-    backgroundColor: "#0B0C0E",
+    backgroundColor: "#161616",
     webPreferences: oauthPopupSessionPreferences(partition),
   };
 }
@@ -591,88 +602,86 @@ function restoreAppWindowAfterSetup() {
   mainWindow.focus();
 }
 
-async function showLocalSettings() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.show();
-    settingsWindow.focus();
-    return;
+let menuUpdateCheck: Promise<void> | null = null;
+
+/** Works before sign-in, unlike the settings section, and answers with native alerts. */
+function checkForUpdatesFromMenu() {
+  // One request at a time, so repeated clicks cannot stack alerts.
+  menuUpdateCheck ??= runMenuUpdateCheck().finally(() => {
+    menuUpdateCheck = null;
+  });
+  return menuUpdateCheck;
+}
+
+async function runMenuUpdateCheck() {
+  let state = await desktopUpdater.check(true);
+  // A found update starts downloading on its own; wait for it so the answer can be "restart".
+  if (state.phase === "available" || state.phase === "downloading") {
+    state = await desktopUpdater.download();
   }
-  if (openingSettings) return;
-  openingSettings = true;
-  try {
-    const url = localStack.webUrl();
-    const token = await readStackToken(stackDir(app.getPath("userData")));
-    if (!token || !(await localStack.matchesDesiredStack(url))) {
-      await dialog.showMessageBox({
-        message: "Start the local server before opening its settings.",
-        type: "info",
+  const alert = (options: Electron.MessageBoxOptions) =>
+    mainWindow && !mainWindow.isDestroyed()
+      ? dialog.showMessageBox(mainWindow, options)
+      : dialog.showMessageBox(options);
+  if (state.phase === "ready") {
+    const { response } = await alert({
+      message: `Rakazo ${state.availableVersion} is ready to install.`,
+      buttons: ["Restart", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (response !== 0) return;
+    const result = await installUpdate();
+    if (result.message) {
+      await alert({
+        type: "warning",
+        message: "Could not install the update.",
+        detail: result.message,
       });
-      return;
     }
-    await settingsCleanup;
-    const partition = "local-server-settings";
-    const targetSession = session.fromPartition(partition);
-    installSessionPermissions(targetSession, () => null);
-    await installBundledRenderer(url, targetSession, partition, true);
-    const win = new BrowserWindow({
-      ...browserWindowOptions(process.platform),
-      title: "Local Server Settings",
-      frame: true,
-      titleBarStyle: "default",
-      trafficLightPosition: undefined,
-      webPreferences: {
-        preload: path.join(import.meta.dirname, "preload.cjs"),
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        partition,
-      },
+  } else if (state.message) {
+    // Offline and other failed checks settle back to idle with a message.
+    await alert({
+      type: "warning",
+      message: "Could not check for updates.",
+      detail: state.message,
     });
-    settingsWindow = win;
-    const origin = new URL(url).origin;
-    settingsTarget = { origin, token };
-    win.webContents.setWindowOpenHandler(({ url: externalUrl }) => {
-      const external = safeExternalUrl(externalUrl);
-      if (external) void shell.openExternal(external);
-      return { action: "deny" };
-    });
-    const preventNavigation = (event: Electron.Event, target: string) => {
-      if (target === `${origin}${LOCAL_SETTINGS_PAGE}`) return;
-      event.preventDefault();
-    };
-    win.webContents.on("will-navigate", preventNavigation);
-    win.webContents.on("will-redirect", preventNavigation);
-    win.once("closed", () => {
-      if (settingsWindow === win) {
-        settingsWindow = null;
-        settingsTarget = null;
-      }
-      const protocol = new URL(url).protocol;
-      if (bundledRendererInstallations.delete(`${partition}:${protocol}`)) {
-        targetSession.protocol.unhandle(protocol.slice(0, -1));
-      }
-      settingsCleanup = targetSession.clearStorageData().catch(() => undefined);
-    });
-    await win.loadURL(`${origin}${LOCAL_SETTINGS_PAGE}`);
-  } catch {
-    settingsWindow?.close();
-    await dialog.showMessageBox({
-      message: "Could not open local server settings. Try again.",
-      type: "error",
-    });
-  } finally {
-    openingSettings = false;
+  } else if (state.phase === "idle") {
+    await alert({ message: "Rakazo is up to date.", detail: `Version ${state.currentVersion}` });
   }
 }
 
+async function installUpdate() {
+  if (desktopUpdater.state().phase !== "ready") return desktopUpdater.state();
+  quitting = true;
+  const state = await desktopUpdater.install();
+  // A failed install stays ready for retry but reports a message. Restore normal
+  // window behavior while the user keeps working after that failure.
+  if (state.phase !== "ready" || state.message !== null) quitting = false;
+  return state;
+}
+
 function installApplicationMenu() {
-  const localSettings: Electron.MenuItemConstructorOptions = {
-    id: "local-server-settings",
-    label: "Local Server Settings…",
-    accelerator: "CmdOrCtrl+,",
+  const computerAccess: Electron.MenuItemConstructorOptions = {
+    label: "Computer Access…",
+    visible: currentSetup?.mode === "new",
+    click: () => mainWindow?.webContents.send("desktop.computer.configure"),
+  };
+  const revokeComputerAccess: Electron.MenuItemConstructorOptions = {
+    label: "Revoke Local Computer Access",
+    visible: hostComputer?.isEnabled() === true,
     click: () => {
-      void showLocalSettings();
+      void hostComputer
+        ?.revoke()
+        .finally(() => installApplicationMenu())
+        .catch(() => undefined);
     },
+  };
+  const checkForUpdates: Electron.MenuItemConstructorOptions = {
+    label: "Check for Updates…",
+    visible: updaterSupport(updaterEnvironment).supported,
+    click: () => void checkForUpdatesFromMenu(),
   };
   const changeServer: Electron.MenuItemConstructorOptions = {
     id: "change-rakazo-server",
@@ -685,8 +694,26 @@ function installApplicationMenu() {
     label: "Stop Local Stack",
     // The stack keeps running after quit (bots are always on); this is the explicit off switch.
     click: () => {
-      if (currentSetup?.mode === "new") void localStack.stop();
+      if (currentSetup?.mode === "new") {
+        hostComputer?.activate(false);
+        installApplicationMenu();
+        void localStack.stop();
+      }
     },
+  };
+  const viewMenu: Electron.MenuItemConstructorOptions = {
+    label: "View",
+    submenu: [
+      { role: "resetZoom" },
+      { role: "zoomIn" },
+      // zoomIn's default accelerator is Cmd/Ctrl+Plus, which needs Shift on US layouts.
+      { role: "zoomIn", accelerator: "CommandOrControl+=", visible: false },
+      { role: "zoomOut" },
+      // macOS adds its own Enter Full Screen item to a menu named View.
+      ...(process.platform === "darwin"
+        ? []
+        : ([{ type: "separator" }, { role: "togglefullscreen" }] as const)),
+    ],
   };
   const template: Electron.MenuItemConstructorOptions[] =
     process.platform === "darwin"
@@ -695,8 +722,10 @@ function installApplicationMenu() {
             label: app.name,
             submenu: [
               { role: "about" },
+              checkForUpdates,
               { type: "separator" },
-              localSettings,
+              computerAccess,
+              revokeComputerAccess,
               changeServer,
               stopStack,
               { type: "separator" },
@@ -708,20 +737,35 @@ function installApplicationMenu() {
             ],
           },
           { role: "editMenu" },
-          { role: "windowMenu" },
+          viewMenu,
+          {
+            label: "Window",
+            role: "window",
+            submenu: [
+              { role: "minimize" },
+              { role: "zoom" },
+              { role: "close" },
+              { type: "separator" },
+              { role: "front" },
+            ],
+          },
         ]
       : [
           {
             label: "File",
             submenu: [
-              localSettings,
+              computerAccess,
+              revokeComputerAccess,
               changeServer,
               stopStack,
+              { type: "separator" },
+              checkForUpdates,
               { type: "separator" },
               { role: "quit" },
             ],
           },
           { role: "editMenu" },
+          viewMenu,
           { role: "windowMenu" },
         ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -826,8 +870,38 @@ function openFailureDetail(error: unknown): string {
   return probeFailureMessage(error);
 }
 
+function activateDesktopMonitoring(url: string | undefined, targetSession?: Session) {
+  if (monitoringTargetUrl === url && monitoringSession === targetSession) return;
+  stopMonitoringSession?.();
+  stopMonitoringSession = undefined;
+  monitoringTargetUrl = url;
+  monitoringSession = targetSession;
+  if (!url || !targetSession) {
+    disableDesktopMonitoring();
+    return;
+  }
+  const fetchMonitoringConfig = () =>
+    targetSession.fetch(new URL("/api/monitoring/config", url).href, {
+      signal: AbortSignal.timeout(8_000),
+    });
+  const refreshMonitoringUser = () => {
+    if (monitoringSession === targetSession && monitoringTargetUrl === url)
+      void refreshDesktopMonitoringUser(fetchMonitoringConfig);
+  };
+  targetSession.cookies.on("changed", refreshMonitoringUser);
+  stopMonitoringSession = () =>
+    targetSession.cookies.removeListener("changed", refreshMonitoringUser);
+  void configureDesktopMonitoring(fetchMonitoringConfig, {
+    version: app.getVersion(),
+    base: url,
+  });
+}
+
 async function openAppOnce(targetUrl: string, switching: boolean) {
+  hostComputer?.activate(currentSetup?.mode === "new" && targetUrl === localStack.webUrl());
   const target = await resolveSessionForTarget(targetUrl);
+  // A failed switch must leave telemetry with the window that remains selected.
+  if (mainWindow === null) activateDesktopMonitoring(targetUrl, target.value);
   const previous = mainWindow;
   let win: BrowserWindow | null = null;
   try {
@@ -849,6 +923,7 @@ async function openAppOnce(targetUrl: string, switching: boolean) {
       throw new Error("The server page did not become ready.");
     }
     currentTargetUrl = targetUrl;
+    activateDesktopMonitoring(targetUrl, target.value);
     setupError = null;
     // Keep the previous window until the caller commits (after setup.json is written).
     pendingPreviousWindow =
@@ -856,6 +931,7 @@ async function openAppOnce(targetUrl: string, switching: boolean) {
     if (pendingPreviousWindow !== null) pendingPreviousWindow.hide();
     return true;
   } catch (error) {
+    reportDesktopError(error, "desktop.startup");
     pendingPreviousWindow = null;
     // Keep the previous app window so Cancel / close can restore it.
     if (previous !== null && !previous.isDestroyed()) mainWindow = previous;
@@ -868,8 +944,19 @@ async function openAppOnce(targetUrl: string, switching: boolean) {
   }
 }
 
+function syncHostComputerAccess() {
+  hostComputer?.activate(
+    currentSetup?.mode === "new" &&
+      mainWindow !== null &&
+      !mainWindow.isDestroyed() &&
+      appWindowTargets.get(mainWindow) === localStack.webUrl(),
+  );
+  installApplicationMenu();
+}
+
 /** Drop the previous app window after the new server is opened and persisted. */
 function commitPendingAppSwitch() {
+  syncHostComputerAccess();
   const previous = pendingPreviousWindow;
   pendingPreviousWindow = null;
   if (previous !== null && !previous.isDestroyed() && previous !== mainWindow) previous.destroy();
@@ -891,6 +978,8 @@ function abandonPendingAppSwitch(
     mainWindow = previous;
     currentSetup = previousSetup;
     currentTargetUrl = previousUrl;
+    activateDesktopMonitoring(previousUrl ?? undefined, previous.webContents.session);
+    syncHostComputerAccess();
     // If setup was already closed (e.g. during a slow write), make the restored
     // session visible — otherwise macOS can be left with no shown window.
     if (setupWindow === null || setupWindow.isDestroyed()) {
@@ -950,6 +1039,10 @@ async function recoverFromCrashedSave(
     mainWindow = null;
     currentSetup = previousSetup;
     currentTargetUrl = previousUrl;
+    if (previousUrl) {
+      const restored = await resolveSessionForTarget(previousUrl);
+      activateDesktopMonitoring(previousUrl, restored.value);
+    } else activateDesktopMonitoring(undefined);
   }
   const message =
     previousSetup !== null
@@ -967,10 +1060,30 @@ function safeOrigin(targetUrl: string) {
   }
 }
 
+// A second launch on Linux/Windows would rerun host-computer setup, overwrite
+// the saved token and restart the local stack under the running instance.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = secondInstanceWindow(setupWindow, mainWindow);
+    if (win === null) return;
+    revealSecondInstanceWindow(win);
+  });
+}
+
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   installSessionPermissions(session.defaultSession, permissionTarget);
   const userDataDir = app.getPath("userData");
+  try {
+    hostComputer = await prepareHostComputer(userDataDir);
+  } catch {
+    /* Local access fails closed; Docker remains available. */
+  }
   localStack = new LocalStackController({
+    hostComputer: hostComputer?.connection,
     platform: process.platform,
     env: process.env,
     exists: existsSync,
@@ -1025,8 +1138,7 @@ app.whenReady().then(async () => {
   app.on("before-quit", cancelBrowserAuth);
   ipcMain.handle("desktop.oauth.open", async (event, url: unknown) => {
     if (
-      (!fromMainWindow(event) &&
-        !(settingsWindow !== null && windowFrom(event) === settingsWindow)) ||
+      !fromMainWindow(event) ||
       event.senderFrame !== event.sender.mainFrame ||
       typeof url !== "string" ||
       url.length > 16_384
@@ -1068,35 +1180,85 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("desktop.oauth.cancel", (event, url: unknown) => {
     if (
-      (!fromMainWindow(event) &&
-        !(settingsWindow !== null && windowFrom(event) === settingsWindow)) ||
+      !fromMainWindow(event) ||
       event.senderFrame !== event.sender.mainFrame ||
       typeof url !== "string"
     )
       return;
     browserAuthAttempts.get(url)?.abort();
   });
-  ipcMain.handle(
-    "desktop.localSettings.request",
-    async (event, pathname: unknown, body: unknown) => {
-      if (
-        !settingsWindow ||
-        windowFrom(event) !== settingsWindow ||
-        event.senderFrame !== event.sender.mainFrame ||
-        !settingsTarget ||
-        event.senderFrame.url !== `${settingsTarget.origin}${LOCAL_SETTINGS_PAGE}`
-      ) {
-        throw new Error("Local settings are not active");
+  const isManagedComputerRequest = (event: Electron.IpcMainInvokeEvent) =>
+    fromMainWindow(event) &&
+    event.senderFrame === event.sender.mainFrame &&
+    currentSetup?.mode === "new" &&
+    appWindowTargets.get(mainWindow!) === localStack.webUrl() &&
+    safeOrigin(event.senderFrame.url) === safeOrigin(localStack.webUrl());
+  const persistHostChoice = async (computerHost: "docker" | "this-mac") => {
+    const origin = new URL(localStack.webUrl()).origin;
+    const token = await readStackToken(stackDir(app.getPath("userData")));
+    if (!token || !(await localStack.matchesDesiredStack()))
+      throw new Error("Local server is unavailable");
+    await saveLocalComputerHost({ origin, token }, computerHost, (input, init) =>
+      net.fetch(input instanceof URL ? input.href : input, {
+        ...init,
+        bypassCustomProtocolHandlers: true,
+      }),
+    );
+  };
+  ipcMain.handle("desktop.computer.requestAccess", async (event) => {
+    if (!isManagedComputerRequest(event) || !hostComputer)
+      throw new Error("Local computer access requires an app-managed local instance.");
+    if (requestingComputerAccess) return false;
+    requestingComputerAccess = true;
+    try {
+      if (!(await localStack.matchesDesiredStack()) || !isManagedComputerRequest(event))
+        return false;
+      if (hostComputer.isEnabled()) {
+        await persistHostChoice("this-mac");
+        return true;
       }
-      return requestLocalSettings(settingsTarget, pathname, body, (input, init) =>
-        net.fetch(input instanceof URL ? input.href : input, {
-          ...init,
-          bypassCustomProtocolHandlers: true,
-        }),
-      );
-    },
+      const result = await dialog.showMessageBox(mainWindow!, {
+        type: "warning",
+        title: "Allow local computer access?",
+        message: "Allow bots to use this computer?",
+        detail:
+          "Bots on this local instance can run commands, read and change files, and launch apps with your account’s permissions. You can revoke access from the app menu.",
+        buttons: ["Cancel", "Allow"],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      });
+      if (result.response !== 1 || !isManagedComputerRequest(event)) return false;
+      hostComputer.activate(true);
+      await hostComputer.grant();
+      try {
+        await persistHostChoice("this-mac");
+      } catch (error) {
+        await hostComputer.revoke();
+        throw error;
+      }
+      installApplicationMenu();
+      return hostComputer.isEnabled();
+    } finally {
+      requestingComputerAccess = false;
+    }
+  });
+  ipcMain.handle("desktop.computer.revokeAccess", async (event) => {
+    if (isManagedComputerRequest(event)) {
+      try {
+        await persistHostChoice("docker");
+      } finally {
+        await hostComputer?.revoke();
+        installApplicationMenu();
+      }
+    }
+  });
+  ipcMain.handle(
+    "desktop.badge.set",
+    createBadgeHandler(permissionTarget, (count) => app.setBadgeCount(count)),
   );
   ipcMain.handle("desktop.platform", () => process.platform);
+  ipcMain.handle("desktop.passkeys.rpIds", () => passkeyRpIds);
   ipcMain.handle("desktop.window.close", (event) => {
     windowFrom(event)?.close();
   });
@@ -1128,21 +1290,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("desktop.update.download", (event) =>
     fromMainWindow(event) ? desktopUpdater.download() : desktopUpdater.state(),
   );
-  ipcMain.handle("desktop.update.install", async (event) => {
-    if (!fromMainWindow(event) || desktopUpdater.state().phase !== "ready") {
-      return desktopUpdater.state();
-    }
-    quitting = true;
-    const state = await desktopUpdater.install();
-    // A failed install stays ready for retry but reports a message. Restore normal
-    // window behavior while the user keeps working after that failure.
-    if (state.phase !== "ready" || state.message !== null) quitting = false;
-    return state;
-  });
+  ipcMain.handle("desktop.update.install", (event) =>
+    fromMainWindow(event) ? installUpdate() : desktopUpdater.state(),
+  );
   ipcMain.handle("desktop.setup.state", (event) => {
     if (!fromSetupWindow(event)) return null;
     return {
       defaultLocalUrl: localStack.webUrl(),
+      cloudUrl: RAKAZO_CLOUD_URL,
       saved: currentSetup,
       error: setupError ?? undefined,
     };
@@ -1193,6 +1348,7 @@ app.whenReady().then(async () => {
       const opened = await appOpener.open(openSetup.serverUrl, { switching: true });
       if (!opened) {
         currentSetup = previousSetup;
+        syncHostComputerAccess();
         return {
           ok: false,
           error: "Could not open that server. The previous instance was left unchanged.",
@@ -1326,5 +1482,7 @@ app.on("before-quit", () => {
   quitting = true;
   clearTimeout(warmWindowTimer);
   // Containers keep running; only an in-flight pull/up is cut short.
+  hostComputer?.activate(false);
+  void hostComputer?.close();
   localStack?.abort();
 });

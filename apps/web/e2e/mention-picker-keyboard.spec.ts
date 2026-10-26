@@ -26,14 +26,12 @@ test("mention picker completes with Enter and Tab", async ({ page }, testInfo) =
   await openNewGroup(page);
   await page.locator("label:has-text('Name') input").fill("Mention keys team");
   const panel = page.getByTestId("side-panel");
-  await panel.getByRole("button", { name: "Researcher" }).click();
-  await panel.getByRole("button", { name: "Research Writer" }).click();
+  await panel.getByRole("checkbox", { name: "Add Researcher to the group" }).click();
+  await panel.getByRole("checkbox", { name: "Add Research Writer to the group" }).click();
   await page.getByRole("button", { name: "Create group", exact: true }).click();
   await page.waitForURL(/\/app\/g\/[^/]+$/);
 
   const composer = page.getByRole("combobox", { name: "Message Mention keys team" });
-  await expect(composer).toBeVisible();
-
   await composer.fill("@Res");
   const picker = page.getByTestId("mention-picker");
   await expect(picker).toBeVisible();

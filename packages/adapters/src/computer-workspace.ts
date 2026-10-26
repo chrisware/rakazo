@@ -7,6 +7,7 @@ import type {
   ComputerRef,
   PortableFile,
   SandboxProvider,
+  WorkspaceDirectoryRequest,
 } from "@rakazo/adapter-kit";
 import type { ComputerMode } from "@rakazo/contracts";
 import { parseScreenLeaseId } from "@rakazo/core";
@@ -18,18 +19,44 @@ import { LocalAgentHomeStore } from "./home.js";
 
 export const PORTABLE_TRANSFER_BATCH_BYTES = 8 * 1024 * 1024;
 
-const skippedBrowserProfileDirectories = new Set([
+/** Browser profile directories the browser rebuilds on its own; exports skip them. */
+export const SKIPPED_BROWSER_PROFILE_DIRECTORIES: ReadonlySet<string> = new Set([
   "Cache",
   "Code Cache",
+  "CacheStorage",
   "GPUCache",
   "GrShaderCache",
   "ShaderCache",
   "DawnGraphiteCache",
   "DawnWebGPUCache",
+  "GraphiteDawnCache",
   "Crashpad",
+  "startup_cache",
+  "cache2",
+  // Components and models the browser downloads again on its own; each copy is per bot.
+  "ActorSafetyLists",
+  "CertificateRevocation",
+  "component_crx_cache",
+  "Crowd Deny",
+  "DeferredBrowserMetrics",
+  "Dictionaries",
+  "extensions_crx_cache",
+  "hyphen-data",
+  "OnDeviceHeadSuggestModel",
+  "optimization_guide_model_store",
+  "OptimizationHints",
+  "PKIMetadata",
+  "Safe Browsing",
+  "SafetyTips",
+  "screen_ai",
+  "Subresource Filter",
+  "WasmTtsEngine",
+  "WidevineCdm",
+  "ZxcvbnData",
 ]);
 const skippedBrowserProfileFiles = new Set([
   "BrowserMetrics",
+  "BrowserMetrics-spare.pma",
   "DevToolsActivePort",
   "SingletonCookie",
   "SingletonLock",
@@ -44,8 +71,24 @@ export function shouldSkipPortableWorkspaceFile(relative: string) {
   const segments = relative.split("/");
   const name = segments.at(-1) ?? "";
   return (
-    segments.some((segment) => skippedBrowserProfileDirectories.has(segment)) ||
+    segments.some((segment) => SKIPPED_BROWSER_PROFILE_DIRECTORIES.has(segment)) ||
     skippedBrowserProfileFiles.has(name)
+  );
+}
+
+/** The computer already reads and writes the server's home directory, so there is nothing to copy. */
+async function homeIsMounted(
+  home: AgentHomeStore,
+  sandbox: SandboxProvider,
+  computer: ComputerRef,
+  context: AdapterContext,
+) {
+  if (!(home instanceof LocalAgentHomeStore)) return false;
+  if (computer.kind === "docker") return true;
+  // Object-backed homes must hydrate and export even when a claim was configured.
+  if (home.describe().id !== "local-fs") return false;
+  return (
+    computer.kind === "kubernetes" && (await sandbox.hasMountedHome?.(computer, context)) === true
   );
 }
 
@@ -56,7 +99,7 @@ export async function restoreComputerWorkspace(
   computer: ComputerRef,
   context: AdapterContext,
 ): Promise<void> {
-  if (computer.kind === "docker" && home instanceof LocalAgentHomeStore) return;
+  if (await homeIsMounted(home, sandbox, computer, context)) return;
   await sandbox.importWorkspace(computer, home.exportHome(homeKey, context), context);
 }
 
@@ -68,19 +111,12 @@ export async function ensureComputerWorkspaceLayout(
   context: AdapterContext,
 ): Promise<void> {
   if (scope !== "team" || !botId) return;
-  let exitCode: number | undefined;
-  let stderr = "";
-  for await (const event of sandbox.execute(
+  await manageComputerWorkspaceDirectories(
+    sandbox,
     computer,
-    { argv: ["mkdir", "-p", "shared", teamBotWorkspaceDirectory(botId)] },
+    { action: "ensure", paths: ["shared", teamBotWorkspaceDirectory(botId)] },
     context,
-  )) {
-    if (event.type === "stderr") stderr += event.data;
-    if (event.type === "exit") exitCode = event.code;
-  }
-  if (exitCode !== 0) {
-    throw new Error(`Could not prepare Team Computer folders${stderr ? `: ${stderr.trim()}` : ""}`);
-  }
+  );
 }
 
 const TEAM_BOT_FOLDER_NAME = /^[A-Za-z0-9_-]+$/;
@@ -137,6 +173,14 @@ export async function removeComputerWorkspaceDirectories(
   names: readonly string[],
   context: AdapterContext,
 ): Promise<void> {
+  if (sandbox.workspaceDirectories) {
+    await sandbox.workspaceDirectories(
+      computer,
+      { action: "remove", parent, names: [...names] },
+      context,
+    );
+    return;
+  }
   let exitCode: number | undefined;
   let stderr = "";
   for await (const event of sandbox.execute(
@@ -260,6 +304,8 @@ async function listTeamBotEntries(
   let exitCode: number | undefined;
   let stdout = "";
   let stderr = "";
+  if (sandbox.workspaceDirectories)
+    return sandbox.workspaceDirectories(computer, { action: "list" }, context);
   for await (const event of sandbox.execute(
     computer,
     { argv: ["bash", "-eu", "-c", LIST_TEAM_BOT_ENTRIES], cwd: "." },
@@ -273,20 +319,50 @@ async function listTeamBotEntries(
   return stdout.split("\n").filter(Boolean);
 }
 
+/**
+ * Folders of the space's deleted bots, as `bots/<id>` and `.browser-profiles/<name>`. A Team
+ * Computer that has not removed them yet must not save them back into its stored home.
+ */
+export async function deletedTeamBotFolders(
+  prisma: Pick<PrismaClient, "botDeletion">,
+  computer: { scope: string; spaceId: string },
+): Promise<Set<string> | undefined> {
+  if (computer.scope !== "team") return undefined;
+  const deleted = await prisma.botDeletion.findMany({
+    where: { spaceId: computer.spaceId },
+    select: { id: true },
+  });
+  const folders = new Set<string>();
+  for (const { id } of deleted) {
+    if (isTeamBotFolderName(id)) folders.add(`bots/${id}`);
+    const profile = teamBrowserProfileName(id);
+    if (profile) folders.add(`.browser-profiles/${profile}`);
+  }
+  return folders;
+}
+
 export async function checkpointComputerWorkspace(
   home: AgentHomeStore,
   sandbox: SandboxProvider,
   homeKey: string,
   computer: ComputerRef,
   context: AdapterContext,
+  /** Read after the export, just before saving, so a deletion during the export still counts. */
+  excludedFolders?: () => Promise<ReadonlySet<string> | undefined>,
 ): Promise<string> {
-  if (computer.kind === "docker" && home instanceof LocalAgentHomeStore) {
+  if (
+    home instanceof LocalAgentHomeStore &&
+    (await homeIsMounted(home, sandbox, computer, context))
+  ) {
     return home.revise(homeKey);
   }
   const staging = await mkdtemp(path.join(tmpdir(), "rakazo-workspace-"));
   try {
     for await (const file of sandbox.exportWorkspace(computer, context)) {
       await writePortableFile(staging, file);
+    }
+    for (const folder of (await excludedFolders?.()) ?? []) {
+      await rm(path.join(staging, folder), { recursive: true, force: true });
     }
     return await home.commit(homeKey, staging, context);
   } finally {
@@ -297,7 +373,7 @@ export async function checkpointComputerWorkspace(
 /** Remote exports quiesce browsers, so a run must not checkpoint while peers are driving them. */
 export async function checkpointRunComputerWorkspace(
   deps: { home: AgentHomeStore; sandbox: SandboxProvider; prisma: PrismaClient },
-  computerRecord: { id: string; homeKey: string; scope: string },
+  computerRecord: { id: string; homeKey: string; scope: string; spaceId: string },
   computer: ComputerRef,
   context: AdapterContext,
 ): Promise<string | undefined> {
@@ -341,20 +417,22 @@ export async function checkpointRunComputerWorkspace(
 
 export async function checkpointAndRecordComputerWorkspace(
   deps: { home: AgentHomeStore; sandbox: SandboxProvider; prisma: PrismaClient },
-  computerRecord: { id: string; homeKey: string },
+  computerRecord: { id: string; homeKey: string; scope: string; spaceId: string },
   computer: ComputerRef,
   context: AdapterContext,
 ): Promise<string> {
+  const checkpointedAt = new Date();
   const revision = await checkpointComputerWorkspace(
     deps.home,
     deps.sandbox,
     computerRecord.homeKey,
     computer,
     context,
+    () => deletedTeamBotFolders(deps.prisma, computerRecord),
   );
   await deps.prisma.computer.updateMany({
     where: { id: computerRecord.id },
-    data: { homeRevision: revision },
+    data: { homeRevision: revision, homeRevisionAt: checkpointedAt },
   });
   return revision;
 }
@@ -369,4 +447,38 @@ async function writePortableFile(root: string, file: PortableFile) {
   }
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, file.content, { mode: file.executable ? 0o700 : 0o600 });
+}
+
+/** Route directory intents through native providers while preserving the Unix fallback. */
+export async function manageComputerWorkspaceDirectories(
+  sandbox: SandboxProvider,
+  computer: ComputerRef,
+  request: WorkspaceDirectoryRequest,
+  context: AdapterContext,
+): Promise<string[]> {
+  if (sandbox.workspaceDirectories) return sandbox.workspaceDirectories(computer, request, context);
+  if (request.action === "list") return listTeamBotEntries(sandbox, computer, context);
+  if (request.action === "remove") {
+    await removeComputerWorkspaceDirectories(
+      sandbox,
+      computer,
+      request.parent,
+      request.names,
+      context,
+    );
+    return [];
+  }
+  let code: number | undefined;
+  let stderr = "";
+  for await (const event of sandbox.execute(
+    computer,
+    { argv: ["mkdir", "-p", ...request.paths] },
+    context,
+  )) {
+    if (event.type === "exit") code = event.code;
+    if (event.type === "stderr") stderr += event.data;
+  }
+  if (code !== 0)
+    throw new Error(`Could not prepare Team Computer folders${stderr ? `: ${stderr.trim()}` : ""}`);
+  return [];
 }

@@ -1,4 +1,6 @@
-import { formatCron } from "./cron.js";
+import type { CronLabels } from "./cron.js";
+import { ENGLISH_CRON_LABELS, formatCron } from "./cron.js";
+import { displayName } from "./display-name.js";
 import { hasMentionToken } from "./group-mentions.js";
 
 export const COMPOSER_MENTION_KINDS = ["bot", "group", "routine", "connector", "everyone"] as const;
@@ -137,9 +139,14 @@ export function appendConnectorIntent(text: string, names: readonly string[]): s
   return trimmed ? `${trimmed}\n\n${line}` : line;
 }
 
-export function routineScheduleSubtitle(crons: readonly string[], botName?: string): string {
-  const schedule = crons.map((cron) => formatCron(cron)).join(" · ");
-  if (botName?.trim()) return `${schedule} · ${botName.trim()}`;
+export function routineScheduleSubtitle(
+  crons: readonly string[],
+  botName?: string,
+  labels: CronLabels = ENGLISH_CRON_LABELS,
+): string {
+  const schedule = crons.map((cron) => formatCron(cron, labels)).join(", ");
+  const name = displayName(botName, "");
+  if (name) return `${schedule} (${name})`;
   return schedule;
 }
 
@@ -151,6 +158,8 @@ export function buildComposerMentionOptions(input: {
   connectors: readonly MentionPickerConnector[];
   currentGroupId?: string | null;
   includeEveryone?: boolean;
+  /** Localized schedule words for routine subtitles; English when omitted. */
+  cronLabels?: CronLabels;
   /** When omitted, return every match (catalog build). When set, apply after query filter. */
   limit?: number;
 }): ComposerMention[] {
@@ -170,11 +179,12 @@ export function buildComposerMentionOptions(input: {
   }
 
   for (const bot of input.bots) {
-    if (!matches(bot.name)) continue;
+    const name = displayName(bot.name, "Bot");
+    if (!matches(name)) continue;
     options.push({
       kind: "bot",
       id: bot.id,
-      name: bot.name,
+      name,
       subtitle: "Bot",
       color: bot.color,
     });
@@ -182,29 +192,35 @@ export function buildComposerMentionOptions(input: {
 
   for (const group of input.groups) {
     if (input.currentGroupId && group.id === input.currentGroupId) continue;
-    if (!matches(group.name)) continue;
+    const name = displayName(group.name, "Group");
+    if (!matches(name)) continue;
     options.push({
       kind: "group",
       id: group.id,
-      name: group.name,
+      name,
       subtitle: "Group",
     });
   }
 
   const routineNameCounts = new Map<string, number>();
   for (const routine of input.routines) {
-    const key = routine.name.toLowerCase();
+    const key = displayName(routine.name, "Routine").toLowerCase();
     routineNameCounts.set(key, (routineNameCounts.get(key) ?? 0) + 1);
   }
   for (const routine of input.routines) {
-    if (!matches(routine.name)) continue;
-    const duplicate = (routineNameCounts.get(routine.name.toLowerCase()) ?? 0) > 1;
+    const name = displayName(routine.name, "Routine");
+    if (!matches(name)) continue;
+    const duplicate = (routineNameCounts.get(name.toLowerCase()) ?? 0) > 1;
     options.push({
       kind: "routine",
       id: routine.id,
-      name: routine.name,
+      name,
       botId: routine.botId,
-      subtitle: routineScheduleSubtitle(routine.crons, duplicate ? routine.botName : undefined),
+      subtitle: routineScheduleSubtitle(
+        routine.crons,
+        duplicate ? routine.botName : undefined,
+        input.cronLabels,
+      ),
     });
   }
 

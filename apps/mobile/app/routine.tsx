@@ -8,15 +8,18 @@ import { rpc } from "../lib/api";
 import { useI18n } from "../lib/i18n";
 import { native, useMobileTokens } from "../lib/native";
 import { routineStatusLine } from "../lib/routine";
+import { useSideInsets } from "../lib/side-insets";
 import { errorText } from "../lib/user-error";
 
 export default function RoutineDetail() {
+  const sideInsets = useSideInsets();
   const tokens = useMobileTokens();
   const { t } = useI18n();
-  const { botId, botName, routineId } = useLocalSearchParams<{
+  const { botId, botName, routineId, origin } = useLocalSearchParams<{
     botId?: string;
     botName?: string;
     routineId?: string;
+    origin?: string;
   }>();
   const router = useRouter();
   const [routine, setRoutine] = useState<Routine | null>(null);
@@ -53,7 +56,7 @@ export default function RoutineDetail() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: tokens.background }}
+      style={[{ flex: 1, backgroundColor: tokens.background }, sideInsets]}
       contentContainerStyle={{ padding: 24, gap: 18 }}
       contentInsetAdjustmentBehavior="automatic"
     >
@@ -93,15 +96,17 @@ export default function RoutineDetail() {
               {routine.prompt}
             </Text>
           </View>
-          <NativeActionButton
-            label={t("Open conversation")}
-            onPress={() =>
-              router.push({
-                pathname: "/thread",
-                params: { botId: botId ?? "", name: botName ?? t("Bot") },
-              })
-            }
-          />
+          {origin !== "profile" ? (
+            <NativeActionButton
+              label={t("Open conversation")}
+              onPress={() =>
+                router.push({
+                  pathname: "/thread",
+                  params: { botId: botId ?? "", name: botName ?? t("Bot") },
+                })
+              }
+            />
+          ) : null}
         </>
       ) : null}
     </ScrollView>

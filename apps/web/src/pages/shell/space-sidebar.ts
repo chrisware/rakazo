@@ -7,7 +7,6 @@ type SidebarChat = {
   preview?: string | null;
   pinned: boolean;
   sectionId: string | null;
-  parentBotId?: string | null;
 };
 
 type SidebarSpace<TBot extends SidebarChat, TGroup extends SidebarChat> = {
@@ -24,6 +23,8 @@ function spaceHeaderMenu(space: { canRename?: boolean; canDelete?: boolean }, ho
   return {
     canRenameSpace: hostsMenu && space.canRename === true,
     canDeleteSpace: hostsMenu && space.canDelete === true,
+    // Every member can open a space's settings, so the menu does not depend on rename or delete.
+    canOpenSpaceSettings: hostsMenu,
   };
 }
 
@@ -40,6 +41,7 @@ export async function commitSpaceRename(input: {
 export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends SidebarChat>(
   spaces: readonly SidebarSpace<TBot, TGroup>[],
   query: string,
+  labels?: { pinned: string; unassigned: string },
 ) {
   const needle = query.toLowerCase();
   const showSpaceNames = spaces.length > 1;
@@ -57,11 +59,11 @@ export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends 
       ].map((item) => ({
         ...item,
         id: item.chat.id,
-        parentBotId: item.kind === "bot" ? (item.chat.parentBotId ?? null) : null,
         pinned: item.chat.pinned,
         sectionId: item.chat.sectionId,
       })),
       space.botSections,
+      { labels },
     );
     // Keep destinations visible after their last bot is dragged out. Search
     // still hides empty lists, and spaces without sections keep their old layout.
@@ -73,7 +75,7 @@ export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends 
         }
       }
       if (!grouped.some((group) => group.key === "unassigned")) {
-        grouped.push({ key: "unassigned", title: "Unassigned", bots: [] });
+        grouped.push({ key: "unassigned", title: labels?.unassigned ?? "Unassigned", bots: [] });
       }
       const order = [
         "pinned",
@@ -86,11 +88,9 @@ export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends 
       ...group,
       sectionId: group.key.startsWith("section:") ? group.key.slice("section:".length) : null,
       key: showSpaceNames ? `space:${space.id}:${group.key}` : group.key,
-      title: showSpaceNames
-        ? group.title
-          ? `${space.name} · ${group.title}`
-          : space.name
-        : group.title,
+      // A header holding the space menu is never blank, even for the only space.
+      title: showSpaceNames ? space.name : index === 0 && !group.title ? space.name : group.title,
+      subtitle: showSpaceNames && group.title ? group.title : undefined,
       showLock: showSpaceNames,
       emptySpaceId: undefined as string | undefined,
       spaceId: space.id,
@@ -100,11 +100,32 @@ export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends 
     if (sections.length > 0) return sections;
     // Keep empty spaces selectable; chat clicks are the only switch control.
     if (needle && (space.bots.length > 0 || space.groups.length > 0)) return [];
-    if (!showSpaceNames && space.canRename !== true && space.canDelete !== true) return [];
+    // Saved sections stay listed under the placeholder so they can still be
+    // renamed or deleted after their last chat leaves.
+    const emptySections = needle
+      ? []
+      : space.botSections.map((section) => ({
+          key: showSpaceNames ? `space:${space.id}:section:${section.id}` : `section:${section.id}`,
+          title: showSpaceNames ? space.name : section.name,
+          subtitle: showSpaceNames ? section.name : undefined,
+          bots: [] as (typeof sections)[number]["bots"],
+          sectionId: section.id as string | null,
+          showLock: showSpaceNames,
+          emptySpaceId: undefined as string | undefined,
+          spaceId: space.id,
+          spaceName: space.name,
+          ...spaceHeaderMenu(space, false),
+        }));
+    // A lone space is the selected one, so its settings stay in the account menu too.
+    const lone = !showSpaceNames && !space.canRename && !space.canDelete;
+    if (lone && (needle || emptySections.length > 0)) {
+      return emptySections;
+    }
     return [
       {
         key: showSpaceNames ? `space:${space.id}:empty` : `space:${space.id}:actions`,
-        title: showSpaceNames ? space.name : null,
+        title: space.name,
+        subtitle: undefined,
         bots: [],
         sectionId: null,
         showLock: showSpaceNames,
@@ -113,6 +134,17 @@ export function sidebarGroupsForSpaces<TBot extends SidebarChat, TGroup extends 
         spaceName: space.name,
         ...spaceHeaderMenu(space, true),
       },
+      ...emptySections,
     ];
   });
+}
+
+/** Count the unread flags the roster renders. Pass unfiltered groups for the app badge. */
+export function countUnreadChats(
+  sections: readonly { bots: readonly { chat: { unread?: boolean } }[] }[],
+): number {
+  return sections.reduce(
+    (count, section) => count + section.bots.filter((item) => item.chat.unread).length,
+    0,
+  );
 }

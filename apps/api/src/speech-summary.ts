@@ -5,8 +5,6 @@ import type { PrismaClient } from "@rakazo/db";
 import { recordUsage } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
-/** Replies longer than this many characters are summarized before a voice reads them. */
-export const DEFAULT_VOICE_SUMMARY_MIN_CHARS = 600;
 const SUMMARY_MAX_CHARS = 500;
 const SUMMARY_TIMEOUT_MS = 20_000;
 const CACHE_ENTRIES = 200;

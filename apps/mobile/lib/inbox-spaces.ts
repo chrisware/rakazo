@@ -1,18 +1,12 @@
 import type { SpaceBot, SpaceGroup } from "@rakazo/contracts";
-import { groupBotsForSidebar, nestRosterByParent } from "@rakazo/core";
-import {
-  adoptDeletedSpaceFallback,
-  type MobileBot,
-  type MobileGroup,
-  type MobileSpace,
-  rpc,
-  selectedSpaceId,
-  selectSpace,
-} from "./api";
+import { groupBotsForSidebar } from "@rakazo/core";
+import type { MobileBot, MobileGroup, MobileSpace } from "./api";
+import { adoptDeletedSpaceFallback, rpc, selectedSpaceId, selectSpace } from "./api";
+import { t } from "./i18n";
 
 export type InboxSpace = Pick<
   MobileSpace,
-  "id" | "name" | "isDefault" | "hasContent" | "canDelete" | "botSections"
+  "id" | "name" | "isDefault" | "hasContent" | "canDelete" | "botCount" | "botSections"
 > & {
   bots: (MobileBot | SpaceBot)[];
   groups: (MobileGroup | SpaceGroup)[];
@@ -22,26 +16,46 @@ export type InboxSpaceItem =
   | {
       type: "bot";
       bot: MobileBot | SpaceBot;
-      depth: number;
-      hasChildren: boolean;
     }
   | { type: "group"; group: MobileGroup | SpaceGroup }
-  | { type: "heading"; key: string; title: string; space?: InboxSpace };
+  | {
+      type: "heading";
+      key: string;
+      title: string;
+      space?: InboxSpace;
+      sectionId?: string;
+      collapsed?: boolean;
+      count?: number;
+    };
 
-export function canDeleteInboxSpace(
-  space: Pick<InboxSpace, "isDefault" | "hasContent" | "canDelete">,
-) {
-  return !space.isDefault && !space.hasContent && space.canDelete === true;
+export function canDeleteInboxSpace(space: Pick<InboxSpace, "isDefault" | "canDelete">) {
+  return !space.isDefault && space.canDelete === true;
+}
+
+/** Names every bot that goes with the space, archived and other members' included. */
+export function deleteSpaceTitle(space: Pick<InboxSpace, "name" | "botCount" | "bots">) {
+  // Servers before botCount only listed the member's active bots.
+  const bots = space.botCount ?? space.bots.length;
+  if (bots === 0) return t("Delete {name}?", { name: space.name });
+  if (bots === 1) return t("Delete {name} and its bot?", { name: space.name });
+  return t("Delete {name} and its {count} bots?", { name: space.name, count: bots });
+}
+
+/** Only headings with no chats under them, counting chats in collapsed sections. */
+export function inboxHasNoChats(items: readonly { type: string; count?: number }[]): boolean {
+  return items.every((item) => item.type === "heading" && !item.count);
 }
 
 /** A brand-new space renders only its heading until it has a bot or group. */
-export function inboxNeedsCreateHint(items: readonly { type: string }[]): boolean {
-  return items.length > 0 && items.every((item) => item.type === "heading");
+export function inboxNeedsCreateHint(items: readonly { type: string; count?: number }[]): boolean {
+  return items.length > 0 && inboxHasNoChats(items);
 }
 
+/** `collapsed` holds section heading keys. */
 export function spaceInboxItems(
   spaces: InboxSpace[],
-  collapsedParentIds: ReadonlySet<string> = new Set(),
+  collapsed: ReadonlySet<string> = new Set(),
+  editableSpaceId?: string,
 ): InboxSpaceItem[] {
   return spaces.flatMap((space): InboxSpaceItem[] => {
     const chats = [
@@ -49,7 +63,6 @@ export function spaceInboxItems(
         type: "bot" as const,
         bot: chat,
         id: chat.id,
-        parentBotId: chat.parentBotId,
         pinned: chat.pinned,
         sectionId: chat.sectionId,
       })),
@@ -65,20 +78,29 @@ export function spaceInboxItems(
     if (spaces.length > 1 || !space.isDefault || chats.length === 0) {
       items.push({ type: "heading", key: space.id, title: space.name, space });
     }
-    for (const group of groupBotsForSidebar(chats, space.botSections)) {
+    for (const group of groupBotsForSidebar(chats, space.botSections, {
+      includeEmptySections: true,
+      labels: { pinned: t("Pinned"), unassigned: t("Unassigned") },
+    })) {
       if (group.title) {
-        items.push({ type: "heading", key: `${space.id}:${group.key}`, title: group.title });
+        const key = `${space.id}:${group.key}`;
+        items.push({
+          type: "heading",
+          key,
+          title: group.title,
+          ...(space.id === editableSpaceId && group.key.startsWith("section:")
+            ? { sectionId: group.key.slice("section:".length) }
+            : {}),
+          collapsed: collapsed.has(key),
+          count: group.bots.length,
+        });
+        if (collapsed.has(key)) continue;
       }
-      for (const row of nestRosterByParent(group.bots, collapsedParentIds)) {
-        if (row.item.type === "bot") {
-          items.push({
-            type: "bot",
-            bot: row.item.bot,
-            depth: row.depth,
-            hasChildren: row.hasChildren,
-          });
+      for (const item of group.bots) {
+        if (item.type === "bot") {
+          items.push({ type: "bot", bot: item.bot });
         } else {
-          items.push({ type: "group", group: row.item.group });
+          items.push({ type: "group", group: item.group });
         }
       }
     }

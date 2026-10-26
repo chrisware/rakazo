@@ -9,6 +9,7 @@ const fakeAgentState = vi.hoisted(() => ({
     | "two-boundaries"
     | "silent-continuation"
     | "subagent-limit"
+    | "two-subagents"
     | "parent-limit"
     | "parent-parallel"
     | "ask-pause"
@@ -311,6 +312,16 @@ vi.mock("@earendil-works/pi-agent-core", () => ({
       }
 
       const delegation = this.tools.find((tool) => tool.name === "run_subagent");
+      if (delegation && fakeAgentState.mode === "two-subagents") {
+        await Promise.all(
+          ["a", "b"].map((name) => {
+            const args = { name, task: "keep calling shell" };
+            this.emit({ type: "tool_execution_start", toolName: delegation.name, args });
+            return delegation.execute(`delegate-${name}`, args);
+          }),
+        );
+        return;
+      }
       if (delegation) {
         const args = { name: "loop", task: "keep calling shell" };
         this.emit({
@@ -827,7 +838,7 @@ describe("Pi connector tool dispatch", () => {
     );
   });
 
-  it("runs schedule tools sequentially so a list in the same turn sees a create", async () => {
+  it("runs schedule tools and remember sequentially", async () => {
     const executeTool = vi.fn(async () => ({ ok: true }));
     const runtime = new PiAgentRuntime();
 
@@ -839,7 +850,13 @@ describe("Pi connector tool dispatch", () => {
         prompt: "remind me in ten minutes",
         instructions: "Use schedule_create then schedule_list.",
         history: [],
-        tools: [scheduleCreateTool, scheduleListTool, scheduleCancelTool, destinationTool],
+        tools: [
+          scheduleCreateTool,
+          scheduleListTool,
+          scheduleCancelTool,
+          destinationTool,
+          builtinAgentTools.find((tool) => tool.name === "remember")!,
+        ],
         model: { provider: "test", id: "dispatch-test-model" },
         executeTool,
       },
@@ -862,6 +879,7 @@ describe("Pi connector tool dispatch", () => {
     expect(modes.get("schedule_create")).toBe("sequential");
     expect(modes.get("schedule_list")).toBe("sequential");
     expect(modes.get("schedule_cancel")).toBe("sequential");
+    expect(modes.get("remember")).toBe("sequential");
     expect(modes.get("destination_write")).toBe("default");
   });
 
@@ -1776,6 +1794,54 @@ describe("Pi connector tool dispatch", () => {
     );
   });
 
+  it("caps a parent and two concurrent subagents at one total, then gives a later run a fresh budget", async () => {
+    process.env.MAX_TOOL_CALLS_PER_TURN = "50";
+    fakeAgentState.mode = "two-subagents";
+    const executeTool = vi.fn(async () => ({ ok: true }));
+    const runtime = new PiAgentRuntime();
+    const request = {
+      botId: "b",
+      threadId: "t",
+      runId: "tree-limited",
+      prompt: "delegate twice",
+      instructions: "Use run_subagent.",
+      history: [],
+      tools: [
+        {
+          name: "run_subagent",
+          description: "Delegate work",
+          inputSchema: { type: "object", properties: {} },
+        },
+        shellTool,
+      ],
+      model: { provider: "test", id: "dispatch-test-model" },
+      executeTool,
+    };
+    const context = {
+      operationId: "2j",
+      traceId: "2j",
+      spaceId: "w",
+      userId: "u",
+      signal: new AbortController().signal,
+    };
+    const stopText =
+      "I stopped after reaching the limit of 50 tool calls in this turn. Send another message to continue.";
+
+    const first: unknown[] = [];
+    for await (const event of runtime.run(request, context)) first.push(event);
+    // 2 run_subagent calls + shell calls from both children never exceed the cap in total.
+    expect(executeTool).toHaveBeenCalledTimes(48);
+    expect(first.at(-1)).toEqual({ type: "done", text: stopText });
+    expect(first.filter((e) => (e as { status?: string }).status === "failed")).toHaveLength(0);
+
+    // The budget was released: the same run id starts at zero again.
+    executeTool.mockClear();
+    const second: unknown[] = [];
+    for await (const event of runtime.run(request, context)) second.push(event);
+    expect(executeTool).toHaveBeenCalledTimes(48);
+    expect(second.at(-1)).toEqual({ type: "done", text: stopText });
+  });
+
   it("treats unset, empty, and non-positive MAX_TOOL_CALLS_PER_TURN as unlimited", () => {
     expect(maxToolCallsPerTurn({})).toBe(0);
     expect(maxToolCallsPerTurn({ MAX_TOOL_CALLS_PER_TURN: "" })).toBe(0);
@@ -2133,6 +2199,51 @@ describe("Pi connector tool dispatch", () => {
     const result = fakeAgentState.toolResult as { content: Array<{ type: string; text: string }> };
     expect(result.content[0]!.text.length).toBeGreaterThan(TOOL_RESULT_TEXT_LIMIT);
     expect(JSON.parse(result.content[0]!.text)).toEqual(skill);
+  });
+
+  it("delivers full child instructions and their version past the tool result bound", async () => {
+    const listing = {
+      bot: { id: "child", instructionsVersion: "v2", instructions: "x".repeat(20_000) },
+      bots: [],
+      groups: [],
+      sections: [],
+      truncated: false,
+    };
+    fakeAgentState.invoke = { name: "list_fleet", args: { bot_id: "child" } };
+    const runtime = new PiAgentRuntime();
+
+    for await (const _event of runtime.run(
+      {
+        botId: "b",
+        threadId: "t",
+        runId: "large-child",
+        prompt: "edit the child",
+        instructions: "Read the child before updating it.",
+        history: [],
+        tools: [
+          {
+            name: "list_fleet",
+            description: "Read a child by id",
+            inputSchema: { type: "object", properties: { bot_id: { type: "string" } } },
+          },
+        ],
+        model: { provider: "test", id: "dispatch-test-model" },
+        executeTool: vi.fn(async () => listing),
+      },
+      {
+        operationId: "large-child",
+        traceId: "large-child",
+        spaceId: "w",
+        userId: "u",
+        signal: new AbortController().signal,
+      },
+    )) {
+      // Exhaust so the fake agent executes the tool.
+    }
+
+    const result = fakeAgentState.toolResult as { content: Array<{ type: string; text: string }> };
+    expect(result.content[0]!.text.length).toBeGreaterThan(TOOL_RESULT_TEXT_LIMIT);
+    expect(JSON.parse(result.content[0]!.text)).toEqual(listing);
   });
 
   it("serialises object content instead of writing [object Object] for write_file", async () => {

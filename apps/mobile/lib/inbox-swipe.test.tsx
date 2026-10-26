@@ -6,7 +6,9 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { InboxSwipeRowProps } from "../components/inbox-swipe-row";
 import { InboxSwipeRow } from "../components/inbox-swipe-row.ios";
+import type { MobileBotSection } from "./api";
 import type { InboxRowAction } from "./inbox-swipe";
 import {
   applyUnreadOverrides,
@@ -15,12 +17,12 @@ import {
   inboxRowActionList,
   inboxRowActions,
   unreadOverrideKey,
+  withoutArchiving,
 } from "./inbox-swipe";
 
 const testFileUrl = import.meta.url;
 
 const swift = vi.hoisted(() => ({
-  buttons: [] as Array<Record<string, unknown>>,
   groups: [] as Array<{ edge?: string; allowsFullSwipe?: boolean; labels: string[] }>,
 }));
 
@@ -30,58 +32,128 @@ vi.mock("react-native", () => ({
   View: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 vi.mock("./native", () => ({
-  native: { page: "page" },
+  native: { page: "page", fill: "fill" },
   useResolvedAppearance: () => "light",
 }));
 vi.mock("./i18n", () => ({ useI18n: () => ({ t: (text: string) => text }) }));
+// SwiftUI views render as plain DOM so tests can read the row's structure.
 vi.mock("@expo/ui/swift-ui", async () => {
   const { Children, isValidElement } = await import("react");
-  const SwipeActions = ({ children }: { children: ReactNode }) => <div>{children}</div>;
-  SwipeActions.Actions = ({
-    edge,
-    allowsFullSwipe,
-    children,
-  }: {
-    edge?: string;
-    allowsFullSwipe?: boolean;
-    children: ReactNode;
-  }) => {
+  const box =
+    (name: string) =>
+    ({ children }: { children?: ReactNode }) => <div data-ui={name}>{children}</div>;
+  const SwipeActions = box("SwipeActions") as ReturnType<typeof box> & {
+    Actions: (props: {
+      edge?: string;
+      allowsFullSwipe?: boolean;
+      children: ReactNode;
+    }) => ReactNode;
+  };
+  SwipeActions.Actions = ({ edge, allowsFullSwipe, children }) => {
     const labels = Children.toArray(children).map((child) =>
       isValidElement<{ label: string }>(child) ? child.props.label : "",
     );
     swift.groups.push({ edge, allowsFullSwipe, labels });
-    return <div>{children}</div>;
+    return <div data-ui="SwipeActions.Actions">{children}</div>;
   };
+  const ContextMenu = Object.assign(box("ContextMenu"), {
+    Trigger: box("ContextMenu.Trigger"),
+    Preview: box("ContextMenu.Preview"),
+    Items: box("ContextMenu.Items"),
+  });
   return {
-    Host: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    List: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    RNHostView: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    Host: box("Host"),
+    List: box("List"),
+    RNHostView: box("RNHostView"),
+    VStack: box("VStack"),
+    HStack: box("HStack"),
+    Text: ({ children }: { children?: ReactNode }) => <span data-ui="Text">{children}</span>,
+    Spacer: () => null,
+    Divider: () => <hr />,
     SwipeActions,
-    Button: (props: Record<string, unknown>) => {
-      swift.buttons.push(props);
-      return null;
-    },
+    ContextMenu,
+    Menu: ({
+      label,
+      systemImage,
+      children,
+    }: {
+      label: string;
+      systemImage?: string;
+      children: ReactNode;
+    }) => (
+      <div data-ui="Menu" data-label={label} data-image={systemImage}>
+        {children}
+      </div>
+    ),
+    Toggle: ({
+      label,
+      isOn,
+      onIsOnChange,
+    }: {
+      label: string;
+      isOn: boolean;
+      onIsOnChange: (isOn: boolean) => void;
+    }) => (
+      <button
+        type="button"
+        data-ui="Toggle"
+        data-label={label}
+        data-on={String(isOn)}
+        onClick={() => onIsOnChange(!isOn)}
+      />
+    ),
+    Button: ({
+      label,
+      systemImage,
+      role,
+      modifiers,
+      onPress,
+    }: {
+      label: string;
+      systemImage?: string;
+      role?: string;
+      modifiers?: unknown[];
+      onPress: () => void;
+    }) => (
+      <button
+        type="button"
+        data-ui="Button"
+        data-label={label}
+        data-image={systemImage}
+        data-role={role}
+        data-modifiers={JSON.stringify(modifiers ?? [])}
+        onClick={onPress}
+      />
+    ),
   };
 });
 vi.mock("@expo/ui/swift-ui/modifiers", () => {
   const modifier = (name: string) => (value: unknown) => ({ name, value });
-  return Object.fromEntries(
-    [
-      "labelStyle",
-      "listRowBackground",
-      "listRowInsets",
-      "listRowSeparator",
-      "listStyle",
-      "scrollContentBackground",
-      "scrollDisabled",
-      "tint",
-    ].map((name) => [name, modifier(name)]),
-  );
+  return {
+    shapes: { roundedRectangle: (value: unknown) => ({ shape: "roundedRectangle", value }) },
+    ...Object.fromEntries(
+      [
+        "background",
+        "font",
+        "foregroundStyle",
+        "frame",
+        "labelStyle",
+        "lineLimit",
+        "listRowBackground",
+        "listRowInsets",
+        "listRowSeparator",
+        "listStyle",
+        "padding",
+        "scrollContentBackground",
+        "scrollDisabled",
+        "tint",
+      ].map((name) => [name, modifier(name)]),
+    ),
+  };
 });
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  swift.buttons = [];
   swift.groups = [];
 });
 afterEach(() => {
@@ -169,61 +241,280 @@ describe("latest queue", () => {
 });
 
 describe("iOS swipe row", () => {
-  function render(rows: Array<{ key: string; unread?: boolean; pinned?: boolean }>) {
-    const onAction = vi.fn<(key: string, action: InboxRowAction) => void>();
+  const sections = [
+    { id: "s1", name: "Work" },
+    { id: "s2", name: "Home" },
+  ] as MobileBotSection[];
+
+  function render(
+    row: Partial<InboxSwipeRowProps> & { key?: string } = {},
+    preview: InboxSwipeRowProps["preview"] = { title: "Ada", message: "Hi", avatar: <i /> },
+  ) {
+    const key = row.key ?? "bot:1";
+    const onAction = vi.fn<(action: InboxRowAction) => void>();
+    const onOrganize = vi.fn<InboxSwipeRowProps["onOrganize"]>();
+    const onEditSection = vi.fn<InboxSwipeRowProps["onEditSection"]>();
     const container = document.createElement("div");
     const root = createRoot(container);
     act(() =>
       root.render(
-        rows.map((row) => (
-          <InboxSwipeRow
-            key={row.key}
-            rowKey={row.key}
-            unread={row.unread}
-            pinned={row.pinned}
-            onAction={(action) => onAction(row.key, action)}
-          >
-            <span>{row.key}</span>
-          </InboxSwipeRow>
-        )),
+        <InboxSwipeRow
+          rowKey={key}
+          sections={sections}
+          preview={preview}
+          onAction={onAction}
+          onOrganize={onOrganize}
+          onEditSection={onEditSection}
+          {...row}
+        >
+          <span>{key}</span>
+        </InboxSwipeRow>,
       ),
     );
-    return { onAction, root };
+    const find = (selector: string) => container.querySelector<HTMLElement>(selector);
+    const items = find('[data-ui="ContextMenu.Items"]')!;
+    const press = (label: string) =>
+      act(() => items.querySelector<HTMLElement>(`[data-label="${label}"]`)!.click());
+    return { container, find, items, press, onAction, onOrganize, onEditSection, root };
   }
 
+  const entry = (item: Element) => [
+    item.getAttribute("data-label"),
+    item.getAttribute("data-image") ?? item.getAttribute("data-on"),
+    item.getAttribute("data-role"),
+  ];
+  const entries = (parent: Element) =>
+    Array.from(parent.children)
+      .filter((child) => child.getAttribute("data-ui"))
+      .map(entry);
+
   it("uses system swipe actions with a full swipe only on the read toggle", () => {
-    const { onAction, root } = render([{ key: "bot:1", unread: true, pinned: true }]);
+    const { container, onAction, root } = render({ unread: true, pinned: true });
     expect(swift.groups).toEqual([
       { edge: "leading", allowsFullSwipe: undefined, labels: ["Mark as Read"] },
       { edge: "trailing", allowsFullSwipe: false, labels: ["Archive", "Unpin"] },
     ]);
-    expect(swift.buttons.map(({ label, systemImage, role }) => [label, systemImage, role])).toEqual(
-      [
-        ["Mark as Read", "checkmark.message.fill", undefined],
-        ["Archive", "eye.slash", "destructive"],
-        ["Unpin", "pin.slash", undefined],
-      ],
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-ui="SwipeActions.Actions"] > button'),
     );
-    expect(swift.buttons[0]!.modifiers).toContainEqual({
+    expect(buttons.map(entry)).toEqual([
+      ["Mark as Read", "checkmark.message.fill", null],
+      // Not destructive: SwiftUI would remove the row at the tap, and a failed archive left a gap.
+      ["Archive", "eye.slash", null],
+      ["Unpin", "pin.slash", null],
+    ]);
+    expect(JSON.parse(buttons[0]!.dataset.modifiers!)).toContainEqual({
       name: "tint",
       value: { semantic: ["systemBlue"] },
     });
-    for (const button of swift.buttons) (button.onPress as () => void)();
-    expect(onAction.mock.calls).toEqual([
-      ["bot:1", "read"],
-      ["bot:1", "archive"],
-      ["bot:1", "unpin"],
+    expect(JSON.parse(buttons[1]!.dataset.modifiers!)).toContainEqual({
+      name: "tint",
+      value: { semantic: ["systemRed"] },
+    });
+    act(() => {
+      for (const button of buttons) button.click();
+    });
+    expect(onAction.mock.calls).toEqual([["read"], ["archive"], ["unpin"]]);
+    act(() => root.unmount());
+  });
+
+  it("opens the system context menu with a preview on the same list row as the swipe actions", () => {
+    const { find, root } = render();
+    const menu = find('[data-ui="SwipeActions"] > [data-ui="ContextMenu"]');
+    expect(menu?.querySelector('[data-ui="ContextMenu.Trigger"]')?.textContent).toBe("bot:1");
+    expect(menu?.querySelector('[data-ui="ContextMenu.Preview"]')).not.toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("offers read state, pin, notifications, move, then archive and delete last for a bot", () => {
+    const { items, find, root } = render({
+      unread: true,
+      pinned: false,
+      notifyOnFinish: true,
+      sectionId: "s1",
+    });
+    expect(entries(items)).toEqual([
+      ["Mark as Read", "checkmark.message.fill", null],
+      ["Pin", "pin", null],
+      ["Silence notifications", "bell.slash", null],
+      ["Move to", "folder", null],
+      ["Archive", "eye.slash", null],
+      ["Delete…", "trash", "destructive"],
+    ]);
+    // Menu items keep their titles; only the swipe buttons are icon-only.
+    for (const button of items.querySelectorAll<HTMLElement>("button")) {
+      expect(button.dataset.modifiers ?? "[]").toBe("[]");
+    }
+    expect(entries(find('[data-ui="Menu"]')!)).toEqual([
+      ["Work", "true", null],
+      ["Home", "false", null],
+      ["Unassigned", "false", null],
+      ["New section", "folder.badge.plus", null],
+      ["Rename section", "pencil", null],
     ]);
     act(() => root.unmount());
+  });
+
+  it("offers a group's actions without notifications or renaming outside a section", () => {
+    const { items, find, root } = render({ key: "group:1", unread: false, pinned: true });
+    expect(entries(items).map(([label]) => label)).toEqual([
+      "Mark as Unread",
+      "Unpin",
+      "Move to",
+      "Archive",
+      "Delete…",
+    ]);
+    expect(items.querySelector('[data-label="Archive"]')?.getAttribute("data-role")).toBeNull();
+    expect(items.querySelector('[data-label="Delete…"]')?.getAttribute("data-role")).toBe(
+      "destructive",
+    );
+    expect(entries(find('[data-ui="Menu"]')!)).toEqual([
+      ["Work", "false", null],
+      ["Home", "false", null],
+      ["Unassigned", "true", null],
+      ["New section", "folder.badge.plus", null],
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("runs menu items through the swipe and organize paths", () => {
+    const { press, onAction, onOrganize, onEditSection, root } = render({
+      unread: false,
+      pinned: false,
+      notifyOnFinish: false,
+      sectionId: "s1",
+    });
+    press("Mark as Unread");
+    press("Pin");
+    press("Resume notifications");
+    press("Work");
+    press("Home");
+    press("Unassigned");
+    press("New section");
+    press("Rename section");
+    press("Archive");
+    press("Delete…");
+    expect(onAction.mock.calls).toEqual([["unread"], ["pin"], ["archive"], ["delete"]]);
+    // Choosing the current section again changes nothing.
+    expect(onOrganize.mock.calls).toEqual([
+      [{ notifyOnFinish: true }],
+      [{ sectionId: "s2" }],
+      [{ sectionId: null }],
+    ]);
+    expect(onEditSection.mock.calls).toEqual([["create"], ["rename"]]);
+    act(() => root.unmount());
+  });
+
+  it("previews the chat's last message as the server sent it, or says there are none", () => {
+    // The server already stores the preview as plain text; literal marks in it are content.
+    const message = "Run `pnpm test`, then <b>ship</b> *now*";
+    const withMessage = render({}, { title: "Ada", message: ` ${message}\n`, avatar: <i /> });
+    const preview = withMessage.find('[data-ui="ContextMenu.Preview"]')!;
+    expect(
+      Array.from(preview.querySelectorAll('[data-ui="Text"]')).map((text) => text.textContent),
+    ).toEqual(["Ada", message]);
+    act(() => withMessage.root.unmount());
+    const empty = render({}, { title: "Ada", message: "", avatar: <i /> });
+    expect(empty.find('[data-ui="ContextMenu.Preview"]')!.textContent).toBe("AdaNo messages yet");
+    act(() => empty.root.unmount());
+  });
+});
+
+describe("cross-space organize", () => {
+  const source = readFileSync(new URL("../app/index.tsx", testFileUrl), "utf8");
+  const handler = source.slice(
+    source.indexOf("  const organize = useCallback("),
+    source.indexOf("  const organizeBot = useCallback("),
+  );
+
+  function setup(cached: boolean) {
+    const chat = { id: "bot-other", spaceId: "space-other" };
+    const space = { id: chat.spaceId, bots: [chat], groups: [], botSections: [] };
+    const scope = {
+      useCallback: (callback: unknown) => callback,
+      organizeRequestId: { current: 0 },
+      currentSessionGeneration: () => 1,
+      currentApiBase: () => "",
+      me: { spaceId: "space-current" },
+      bots: [],
+      groups: [],
+      botSections: [],
+      spaces: cached ? [space] : [],
+      captureApiRequestContext: vi.fn(async () => ({ headers: { authorization: "Bearer fake" } })),
+      rpc: vi.fn(async () => ({ current: space })),
+      setOrganizeTarget: vi.fn(),
+      // A background poll must not delay showing an already available chat.
+      loadBots: vi.fn(() => new Promise(() => {})),
+      Alert: { alert: vi.fn() },
+      errorText: (_error: unknown, fallback: string) => fallback,
+      t: (text: string) => text,
+    };
+    const compiled = ts.transpileModule(`${handler}\nreturn organize;`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const organize = new Function(...Object.keys(scope), compiled)(...Object.values(scope)) as (
+      kind: string,
+      chat: { id: string; spaceId: string },
+    ) => Promise<void>;
+    return { ...scope, organize, chat, space };
+  }
+
+  it("opens immediately from the other space's cached data", async () => {
+    const h = setup(true);
+    const done = h.organize("bot", h.chat);
+    expect(h.setOrganizeTarget).toHaveBeenCalledWith({
+      kind: "bot",
+      id: h.chat.id,
+      spaceId: h.chat.spaceId,
+      chat: h.chat,
+      sections: [],
+    });
+    expect(h.rpc).not.toHaveBeenCalled();
+    await done;
+  });
+
+  it("fetches missing data in the target space independently of inbox polling", async () => {
+    const h = setup(false);
+    await h.organize("bot", h.chat);
+    expect(h.rpc).toHaveBeenCalledWith("spaces/list", undefined, {
+      requestContext: {
+        headers: { authorization: "Bearer fake", "x-rakazo-space-id": h.chat.spaceId },
+      },
+      skipSpaceAuthRecovery: true,
+    });
+    expect(h.setOrganizeTarget).toHaveBeenCalledWith(expect.objectContaining({ chat: h.chat }));
+  });
+
+  it("ignores a fallback response after the organize target is closed", async () => {
+    const h = setup(false);
+    let finish!: (value: { current: typeof h.space }) => void;
+    h.rpc.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const done = h.organize("bot", h.chat);
+    await Promise.resolve();
+    h.organizeRequestId.current += 1;
+    finish({ current: h.space });
+    await done;
+    expect(h.setOrganizeTarget).not.toHaveBeenCalled();
   });
 });
 
 describe("inbox swipe handlers", () => {
   const source = readFileSync(new URL("../app/index.tsx", testFileUrl), "utf8");
-  const handlerSource = source.slice(
-    source.indexOf("  // One path for the long-press sheet and the swipe actions."),
-    source.indexOf("  const botAction = useCallback("),
-  );
+  const handlerSource = [
+    source.slice(
+      source.indexOf("/** Sends a request about a chat to that chat's space"),
+      source.indexOf("export default function HomeRoute()"),
+    ),
+    source.slice(
+      source.indexOf("  // One path for the long-press sheet and the swipe actions."),
+      source.indexOf("  const botAction = useCallback("),
+    ),
+  ].join("\n");
 
   const session = { space: "space-a", generation: 1 };
   beforeEach(() => {
@@ -237,8 +528,13 @@ describe("inbox swipe handlers", () => {
   ) {
     const state = {
       overrides: new Map<string, boolean>() as ReadonlyMap<string, boolean>,
+      archiving: new Set<string>() as ReadonlySet<string>,
       bots: [{ id: "b1", unread: false }],
       groups: [{ id: "g1", unread: true }],
+      spaces: [
+        { id: "space-a", bots: [{ id: "b1" }], groups: [{ id: "g1" }] },
+        { id: "space-b", bots: [{ id: "x" }], groups: [{ id: "x" }] },
+      ],
     };
     const update =
       <K extends keyof typeof state>(key: K) =>
@@ -252,14 +548,20 @@ describe("inbox swipe handlers", () => {
       rpc: vi.fn(rpc),
       loadBots: vi.fn(async () => {}),
       setUnreadOverrides: update("overrides"),
+      setArchiving: update("archiving"),
       setBots: update("bots"),
       setGroups: update("groups"),
+      setSpaces: update("spaces"),
       Alert: { alert: vi.fn() },
       t: (text: string) => text,
       errorText: (_error: unknown, fallback: string) => fallback,
       chatTarget,
       unreadOverrideKey,
-      resumeLiveNotifications: vi.fn(async () => {}),
+      afterChatNotifyChange: vi.fn(async () => {}),
+      confirmDeleteBot: vi.fn(),
+      confirmDeleteGroup: vi.fn(),
+      notifyArchivedChatsChanged: vi.fn(),
+      removeFromSearchInbox: vi.fn(),
       dismissThreadNotifications: vi.fn(async () => {}),
       currentApiBase: () => "",
       loadSessionToken: async () => null,
@@ -277,11 +579,16 @@ describe("inbox swipe handlers", () => {
     const run = new Function(...Object.keys(scope), compiled)(...Object.values(scope)) as {
       runRowAction: (
         kind: "bot" | "group",
-        chat: { id: string },
+        chat: { id: string; name?: string; spaceId?: string },
         action: InboxRowAction,
       ) => Promise<void>;
+      updateChat: (
+        kind: "bot" | "group",
+        chat: { id: string; spaceId?: string },
+        update: { pinned?: boolean },
+      ) => Promise<void>;
     };
-    return { ...scope, state, runRowAction: run.runRowAction };
+    return { ...scope, state, runRowAction: run.runRowAction, updateChat: run.updateChat };
   }
 
   it("sends overlapping read changes for one chat in order and keeps the newest on screen", async () => {
@@ -303,6 +610,19 @@ describe("inbox swipe handlers", () => {
     await first;
     expect(h.state.bots[0]!.unread).toBe(false);
     expect(h.state.overrides.size).toBe(0);
+  });
+
+  it("clears a chat's delivered notifications when it is marked read, not unread", async () => {
+    const h = handlers(async () => undefined);
+    await h.runRowAction("bot", { id: "b1", threadId: "thread-b1" } as never, "read");
+    await h.runRowAction("bot", { id: "b2" }, "read");
+    await h.runRowAction("group", { id: "g1" }, "read");
+    await h.runRowAction("bot", { id: "b1" }, "unread");
+    expect(h.dismissThreadNotifications.mock.calls).toEqual([
+      [{ threadId: "thread-b1" }],
+      [{ botId: "b2" }],
+      [{ groupId: "g1" }],
+    ]);
   });
 
   it("drops a change that is undone before its turn", async () => {
@@ -393,6 +713,124 @@ describe("inbox swipe handlers", () => {
     expect(h.loadBots).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["bot", "confirmDeleteBot"],
+    ["group", "confirmDeleteGroup"],
+  ] as const)(
+    "%s delete asks with the chat's own confirmation and refreshes once deleted",
+    async (kind, confirm) => {
+      const h = handlers(async () => ({ ok: true }));
+      await h.runRowAction(kind, { id: "x", name: "Ada" }, "delete");
+      // Nothing is removed until the alert is confirmed.
+      expect(h.rpc).not.toHaveBeenCalled();
+      expect(h.loadBots).not.toHaveBeenCalled();
+      expect(h[confirm]).toHaveBeenCalledWith({ id: "x", name: "Ada" }, expect.any(Function));
+      h[confirm].mock.calls[0]![1]();
+      expect(h.loadBots).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("hides an archived chat at the tap and keeps it hidden from a reload until it settles", async () => {
+    let finish!: (value: unknown) => void;
+    const h = handlers(() => new Promise((resolve) => (finish = resolve)));
+    let finishReload!: () => void;
+    const reload = new Promise<void>((resolve) => (finishReload = resolve));
+    h.loadBots.mockImplementation(async () => {
+      await reload;
+      h.state.bots = h.state.bots.filter((bot) => bot.id !== "b1");
+    });
+    h.state.bots = [{ id: "b0", unread: false }, ...h.state.bots, { id: "b2", unread: false }];
+    const polledBots = [...h.state.bots];
+    const pending = h.runRowAction("bot", { id: "b1" }, "archive");
+    expect(h.state.archiving).toEqual(new Set(["bot:b1"]));
+    // A poll that still lists the chat doesn't bring the row back while the archive runs.
+    expect(withoutArchiving("bot", h.state.bots, h.state.archiving).map((bot) => bot.id)).toEqual([
+      "b0",
+      "b2",
+    ]);
+    await vi.waitFor(() => expect(h.rpc).toHaveBeenCalledTimes(1));
+    finish({ ok: true });
+    await vi.waitFor(() => expect(h.loadBots).toHaveBeenCalledTimes(1));
+    expect(h.state.bots.map((bot) => bot.id)).toEqual(["b0", "b2"]);
+    // A poll replaces the stored list while the post-archive reload is still pending.
+    h.state.bots = polledBots;
+    expect(h.state.archiving).toEqual(new Set(["bot:b1"]));
+    expect(withoutArchiving("bot", h.state.bots, h.state.archiving).map((bot) => bot.id)).toEqual([
+      "b0",
+      "b2",
+    ]);
+    finishReload();
+    await pending;
+    expect(h.state.bots.map((bot) => bot.id)).toEqual(["b0", "b2"]);
+    expect(h.state.spaces[0]!.bots).toEqual([]);
+    expect(h.loadBots).toHaveBeenCalledTimes(1);
+    expect(h.notifyArchivedChatsChanged).toHaveBeenCalledTimes(1);
+    expect(h.state.archiving.size).toBe(0);
+    expect(h.Alert.alert).not.toHaveBeenCalled();
+  });
+
+  it("keeps an archived chat gone when the reload after the archive fails", async () => {
+    const h = handlers(async () => ({ ok: true }));
+    // loadBots reports a failed load by resolving false and leaves the list as it was.
+    h.loadBots.mockImplementation(async () => false as never);
+    await h.runRowAction("group", { id: "g1" }, "archive");
+    expect(h.state.groups).toEqual([]);
+    expect(h.state.archiving.size).toBe(0);
+  });
+
+  it("puts a chat back in its place when the archive fails", async () => {
+    const h = handlers(async () => {
+      throw new Error("offline");
+    });
+    h.state.bots = [{ id: "b0", unread: false }, ...h.state.bots, { id: "b2", unread: false }];
+    await h.runRowAction("bot", { id: "b1" }, "archive");
+    expect(h.state.archiving.size).toBe(0);
+    expect(withoutArchiving("bot", h.state.bots, h.state.archiving).map((bot) => bot.id)).toEqual([
+      "b0",
+      "b1",
+      "b2",
+    ]);
+    expect(h.notifyArchivedChatsChanged).not.toHaveBeenCalled();
+    expect(h.Alert.alert).toHaveBeenCalledWith("Could not archive bot", "Try again.");
+    expect(h.loadBots).toHaveBeenCalledTimes(1);
+  });
+
+  it("archives a chat from another space in that space", async () => {
+    const h = handlers(async () => ({ ok: true }));
+    await h.runRowAction("group", { id: "x", spaceId: "space-b" }, "archive");
+    expect(h.rpc.mock.calls[0]?.[2]).toMatchObject({
+      requestContext: { headers: { "x-rakazo-space-id": "space-b" } },
+    });
+  });
+
+  it("marks a chat from another space read in that space", async () => {
+    const h = handlers(async () => ({ ok: true }));
+    await h.runRowAction("bot", { id: "x", spaceId: "space-b" }, "read");
+    expect(h.rpc.mock.calls[0]?.[2]).toMatchObject({
+      requestContext: { headers: { "x-rakazo-space-id": "space-b" } },
+    });
+  });
+
+  it("updates a chat from another space in that space without switching", async () => {
+    const h = handlers(async () => ({ ok: true }));
+    await h.updateChat("bot", { id: "x", spaceId: "space-b" }, { pinned: false });
+    expect(h.rpc.mock.calls).toEqual([
+      [
+        "bots/update",
+        { botId: "x", pinned: false },
+        {
+          requestContext: {
+            apiBase: "",
+            headers: { authorization: "Bearer token", "x-rakazo-space-id": "space-b" },
+            sessionGeneration: 1,
+          },
+          skipSpaceAuthRecovery: true,
+        },
+      ],
+    ]);
+    expect(h.loadBots).toHaveBeenCalledTimes(1);
+  });
+
   it("names the archive failure for bots", async () => {
     const h = handlers(async () => {
       throw new Error("nope");
@@ -403,5 +841,20 @@ describe("inbox swipe handlers", () => {
       "Could not archive bot",
       "Could not update chat",
     ]);
+    expect(h.notifyArchivedChatsChanged).not.toHaveBeenCalled();
+    expect(h.removeFromSearchInbox).not.toHaveBeenCalled();
   });
+
+  it.each(["bot", "group"] as const)(
+    "updates the archived count once a %s is archived",
+    async (kind) => {
+      const h = handlers(async () => ({ ok: true }));
+      await h.runRowAction(kind, { id: "x" }, "archive");
+      // Search stops offering it at once, before the inbox reloads.
+      expect(h.removeFromSearchInbox).toHaveBeenCalledWith("x");
+      expect(h.notifyArchivedChatsChanged).toHaveBeenCalledOnce();
+      await h.runRowAction(kind, { id: "x" }, "pin");
+      expect(h.notifyArchivedChatsChanged).toHaveBeenCalledOnce();
+    },
+  );
 });
