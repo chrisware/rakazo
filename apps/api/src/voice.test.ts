@@ -489,6 +489,10 @@ describe("prepareVoice", () => {
     const failed = await prepareVoice(depsWith(failing), actor, { text: long, botId: "bot-1" });
     expect(failed.utterances.join(" ")).toContain("every check passed");
 
+    const unspeakable = vi.fn().mockResolvedValue("🎉");
+    const empty = await prepareVoice(depsWith(unspeakable), actor, { text: long, botId: "bot-1" });
+    expect(empty.utterances.join(" ")).toContain("every check passed");
+
     const off = await prepareVoice(depsWith(), actor, { text: long, botId: "bot-1" });
     expect(off.utterances.join(" ")).toContain("every check passed");
   });

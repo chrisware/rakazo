@@ -488,18 +488,21 @@ export async function prepareVoice(
     }
     throw error;
   }
-  return { ready: true, utterances: toUtterances(await spokenText(deps, actor, input)) };
+  return { ready: true, utterances: await spokenUtterances(deps, actor, input) };
 }
 
-async function spokenText(
+async function spokenUtterances(
   deps: VoiceDeps,
   actor: Actor,
   input: { text: string; botId?: string; signal?: AbortSignal },
-): Promise<string> {
+): Promise<string[]> {
+  const full = toUtterances(input.text);
   const summary = deps.speechSummary;
-  if (!input.botId || !summary) return input.text;
-  if (speakable(input.text).length <= summary.minChars) return input.text;
-  return (await summary.summarize(actor, input.botId, input.text, input.signal)) ?? input.text;
+  if (!input.botId || !summary) return full;
+  if (speakable(input.text).length <= summary.minChars) return full;
+  const spoken = await summary.summarize(actor, input.botId, input.text, input.signal);
+  const utterances = spoken ? toUtterances(spoken) : [];
+  return utterances.length > 0 ? utterances : full;
 }
 
 export async function synthesizeVoice(
