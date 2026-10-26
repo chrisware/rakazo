@@ -6,7 +6,8 @@ import { recordUsage } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
 
 const SUMMARY_MAX_CHARS = 500;
-const SUMMARY_TIMEOUT_MS = 20_000;
+// Under the phone's 8-second request timeout, so a slow summary falls back to the full reply.
+const SUMMARY_TIMEOUT_MS = 5_000;
 const CACHE_ENTRIES = 200;
 const FAILED = /^(?:I hit a problem:|Unknown model )/i;
 
